@@ -40,6 +40,12 @@ func (p *parser) readFile() *yaml.Node {
 		p.errs = append(p.errs, err)
 		return nil
 	}
+	return p.parse(data)
+}
+
+// parse parses the content of p.file into its document node. An empty
+// document yields nil.
+func (p *parser) parse(data []byte) *yaml.Node {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		// yaml errors already carry "line N".
@@ -179,10 +185,11 @@ func (p *parser) rule(n *yaml.Node, denyChaining bool) *Rule {
 	return r
 }
 
-// parseProjectFile parses <project>/.hoex.yaml.
-func parseProjectFile(file string) (*level, []error) {
+// parseProjectFile parses the content of <project>/.hoex.yaml; nil data is
+// a missing file.
+func parseProjectFile(file string, data []byte) (*level, []error) {
 	p := &parser{file: file}
-	root := p.readFile()
+	root := p.parse(data)
 	if root == nil {
 		return nil, p.errs
 	}

@@ -54,6 +54,14 @@ func (l *Logger) Send(e Event) {
 		l.printf(e.Time, "warning: %s", e.Text)
 	case Stopping:
 		l.printf(e.Time, "hoex host: shutting down")
+	case ConfigChanged:
+		// Without the terminal UI there is no way to approve.
+		l.printf(e.Time, "config changed: %s; not applied, start the host with the terminal UI to approve it", e.File)
+		for _, d := range e.Diff {
+			_, _ = fmt.Fprintln(l.w, "  "+d)
+		}
+	case ConfigResolved:
+		l.printf(e.Time, "config change %s, %d rules active", e.Outcome, e.Rules)
 	}
 }
 

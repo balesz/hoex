@@ -4,8 +4,11 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +30,9 @@ type Config struct {
 	Rules []*Rule
 	// ProjectFile is the absolute path of the project config file.
 	ProjectFile string
+	// Checksum identifies the content of the project file the configuration
+	// was loaded from (see Checksum).
+	Checksum string
 	// Warnings are non-fatal problems, e.g. a rule that allows a shell.
 	Warnings []string
 }
@@ -105,6 +111,23 @@ func UserFilePath() (string, error) {
 	return filepath.Join(home, ".config", "hoex", "config.yaml"), nil
 }
 
+// Checksum returns the SHA-256 of a project file's content in hex. A missing
+// file counts as empty.
+func Checksum(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// ReadProjectFile returns the content of the project file at projectRoot,
+// nil if it does not exist.
+func ReadProjectFile(projectRoot string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(projectRoot, ProjectFileName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return data, err
+}
+
 // Load reads the effective configuration for the project at projectRoot.
 // Missing files are not an error. userFile may be empty to skip the user level.
 // All validation errors are returned together, each as "file:line: message".
@@ -113,9 +136,25 @@ func Load(projectRoot, userFile string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("project root: %w", err)
 	}
+	data, err := ReadProjectFile(root)
+	if err != nil {
+		return nil, err
+	}
+	return LoadData(root, userFile, data)
+}
+
+// LoadData is Load with the project file content already read, so that the
+// configuration is exactly the content that was checked and shown. nil data
+// is a missing project file.
+func LoadData(projectRoot, userFile string, project []byte) (*Config, error) {
+	root, err := resolve(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("project root: %w", err)
+	}
 	cfg := &Config{
 		Port:        DefaultPort,
 		ProjectFile: filepath.Join(root, ProjectFileName),
+		Checksum:    Checksum(project),
 	}
 
 	var errs []error
@@ -128,10 +167,10 @@ func Load(projectRoot, userFile string) (*Config, error) {
 			}
 		}
 	}
-	project, perr := parseProjectFile(cfg.ProjectFile)
+	level, perr := parseProjectFile(cfg.ProjectFile, project)
 	errs = append(errs, perr...)
-	if project != nil {
-		cfg.add(*project)
+	if level != nil {
+		cfg.add(*level)
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)

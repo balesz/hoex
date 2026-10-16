@@ -15,12 +15,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/balesz/hoex/internal/approval"
 	"github.com/balesz/hoex/internal/audit"
 	"github.com/balesz/hoex/internal/config"
 	"github.com/balesz/hoex/internal/connfile"
 	"github.com/balesz/hoex/internal/events"
 	"github.com/balesz/hoex/internal/policy"
 	"github.com/balesz/hoex/internal/server"
+	"github.com/balesz/hoex/internal/watch"
 )
 
 // Options configure Run.
@@ -37,6 +39,12 @@ type Options struct {
 	Display events.Sink
 	// Ready, if set, is called with the listening address once serving.
 	Ready func(addr net.Addr)
+	// Approvals remembers the approved project config between runs; nil
+	// trusts the file at every start (tests).
+	Approvals *approval.Store
+	// WatchInterval is how often the project config is checked for changes
+	// besides file events; zero means 2s.
+	WatchInterval time.Duration
 }
 
 // Run serves until ctx is canceled, then removes the connection file.
@@ -48,15 +56,20 @@ func Run(ctx context.Context, o Options) error {
 	if root, err = filepath.EvalSymlinks(root); err != nil {
 		return err
 	}
-	cfg, err := config.Load(root, o.UserConfig)
+	data, err := config.ReadProjectFile(root)
 	if err != nil {
 		return err
 	}
-	warnings := cfg.Warnings
-	if len(cfg.Rules) == 0 {
-		warnings = append(warnings, fmt.Sprintf("no allow rules in %s or the user config; every command will be rejected", cfg.ProjectFile))
+	cfg, err := config.LoadData(root, o.UserConfig, data)
+	if err != nil {
+		return err
 	}
-
+	// active is the configuration in effect: the last approved one. If the
+	// file changed since, the change is offered for approval right away.
+	active, err := approvedConfig(root, o, cfg, data)
+	if err != nil {
+		return err
+	}
 	port := cfg.Port
 	if o.Port != 0 {
 		port = o.Port
@@ -93,14 +106,55 @@ func Run(ctx context.Context, o Options) error {
 	defer func() { _ = log.Close() }()
 	sink := events.Multi{o.Display, log}
 
-	srv := server.New(root, token, policy.New(cfg.Rules), sink)
+	srv := server.New(root, token, policy.New(active.Rules), sink)
 	if err := connfile.Write(root, connfile.Info{Port: actual, Token: token, PID: os.Getpid()}); err != nil {
 		_ = lis.Close()
 		return err
 	}
 	defer func() { _ = connfile.Remove(root) }()
 
-	sink.Send(events.HostStarted{Time: time.Now(), Root: root, Port: actual, Rules: len(cfg.Rules), Warnings: warnings})
+	sink.Send(events.HostStarted{
+		Time: time.Now(), Root: root, Port: actual, Rules: len(active.Rules),
+		Checksum: active.Checksum, Warnings: configWarnings(active),
+	})
+
+	// The project config file is not trusted: a change only takes effect
+	// once the user approves it.
+	rl := &reloader{
+		root: root, userFile: o.UserConfig, sink: sink,
+		active: active, seen: active.Checksum,
+		apply: func(c *config.Config) { srv.SetPolicy(policy.New(c.Rules)) },
+		approved: func(data []byte) {
+			if o.Approvals == nil {
+				return
+			}
+			if err := o.Approvals.Save(root, data); err != nil {
+				sink.Send(events.Warning{Time: time.Now(), Text: "saving the approved config: " + err.Error()})
+			}
+		},
+	}
+	rl.check()
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		interval := o.WatchInterval
+		if interval == 0 {
+			interval = 2 * time.Second
+		}
+		watch.Watch(watchCtx, cfg.ProjectFile, watch.Options{
+			Interval: interval,
+			Settle:   100 * time.Millisecond,
+			OnError: func(err error) {
+				sink.Send(events.Warning{Time: time.Now(), Text: "watching the config: " + err.Error()})
+			},
+		}, rl.check)
+	}()
+	defer func() {
+		stopWatch()
+		<-watchDone
+	}()
+
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(lis) }()
 	if o.Ready != nil {
@@ -115,6 +169,35 @@ func Run(ctx context.Context, o Options) error {
 		srv.Stop(5 * time.Second)
 		return nil
 	}
+}
+
+// approvedConfig returns the configuration from the last approved content of
+// the project file. On the first start in a project the current file counts
+// as approved: the user just wrote it and started the host.
+func approvedConfig(root string, o Options, current *config.Config, data []byte) (*config.Config, error) {
+	if o.Approvals == nil {
+		return current, nil
+	}
+	approved, ok, err := o.Approvals.Load(root)
+	if err != nil {
+		return nil, fmt.Errorf("reading the approved config: %w", err)
+	}
+	if !ok {
+		if err := o.Approvals.Save(root, data); err != nil {
+			return nil, fmt.Errorf("saving the approved config: %w", err)
+		}
+		return current, nil
+	}
+	if config.Checksum(approved) == current.Checksum {
+		return current, nil
+	}
+	cfg, err := config.LoadData(root, o.UserConfig, approved)
+	if err != nil {
+		// The approved content no longer loads (e.g. the user config
+		// changed); start from the user-level rules alone.
+		return config.LoadData(root, o.UserConfig, nil)
+	}
+	return cfg, nil
 }
 
 func newToken() (string, error) {

@@ -179,13 +179,27 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - Jóváhagyás után a skill újragenerálása (ha telepítve van) és naplóbejegyzés.
 - Nem TTY módban a változás nem kerül át; figyelmeztetés, hogy újraindítás szükséges.
 
+**Állapot: kész (2026-10-16), a skill újragenerálása az M6-ra marad. Pszeudoterminálban binárissal is kipróbálva.** Megvalósítás közben rögzített részletek:
+- `internal/watch`: `fsnotify` a fájl könyvtárán (az atomikus csere is látszik), mellette 2 mp-enkénti ellenőrzés. A sandbox mountján nem biztos, hogy a fájlesemények átjutnak a hosthoz. 100 ms várakozás az esemény után, hogy a szerkesztő befejezze az írást.
+- Az összehasonlítás a fájltartalom SHA-256 összegével történik. A hiányzó fájl üres tartalomnak számít. Az összeg a napló `start` rekordjában is szerepel.
+- A jóváhagyásra felkínált konfiguráció abból a tartalomból készül (`config.LoadData`), amelyet a host megmutatott. Ha a fájl a döntés előtt újra megváltozik, a host újraolvassa: a régi ajánlat visszavonódik (`withdrawn`), és az új jelenik meg helyette. Az időközben megérkező, régi ajánlatra vonatkozó döntést a host figyelmen kívül hagyja.
+- Az eltérés szabályonként jelenik meg: `+` új, `-` törölt, `~` csak leírás/példa változott vagy új port. A port csak újraindítás után érvényes. A `deny_chaining: false` a szabály mellett látszik („chaining allowed”). Ha nincs érdemi eltérés (csak megjegyzés, formázás vagy kulcssorrend változott), a host jóváhagyás nélkül átveszi a fájlt.
+- Elutasított tartalmat a host nem ajánl fel újra. Ha a fájl visszaáll az aktív tartalomra, a függő ajánlat visszavonódik.
+- Érvénytelen új fájl: időbélyeges figyelmeztetés a fejlécben (csak a legutóbbi futás közbeni figyelmeztetés látszik), a régi szabályok maradnak.
+- A felhasználói szintű fájlt a host nem figyeli, mert a sandbox nem látja. Egy projektfájl-változáskor viszont újraolvassa, így az eltérésben az ottani változások is megjelennek.
+- A szerver szabályai atomikusan cserélődnek (`Server.SetPolicy`); a már futó parancsokat a csere nem érinti.
+- TUI: a függő változás a jobb oldali panelen jelenik meg, `a` jóváhagy, `r` elutasít; az ablak címe is jelzi. Jóváhagyás után a fejléc szabályszáma és a konfigurációs figyelmeztetései frissülnek.
+- Napló: `config_change` (sorszám, ellenőrző összeg, eltérés), illetve `config_approved` / `config_rejected` / `config_withdrawn`.
+- Induláskori ellenőrzés (`internal/approval`): a jóváhagyott tartalom projektenként a `$XDG_STATE_HOME/hoex/approved/` (alapból `~/.local/state/hoex/approved/`) alatt, a projektgyökér hash-ével elnevezett fájlban. Induláskor ez az érvényes konfiguráció; ha a projektfájl eltér tőle, a host azonnal jóváhagyásra kínálja a változást. Az első indítás egy projektben jóváhagyásnak számít. Ha a tárolt tartalom már nem tölthető be, a host csak a felhasználói szintű szabályokkal indul, és a teljes projektfájlt kínálja jóváhagyásra.
+- `--no-tui` módban nincs jóváhagyás: a host jelzi, hogy a változáshoz TUI-val kell indítani, addig a jóváhagyott szabályok érvényesek.
+
 ### M6 – Skillgenerálás
 
 - `internal/skill`: agentenkénti `text/template` sablon (`embed`-del), regiszter `claude` kulccsal; ismeretlen érték → hiba a támogatott listával.
 - `SKILL.md` frontmatter: `name: hoex`, `description` a parancsok felsorolásával: `prefix` szabálynál a teljes, akár többszavas prefix („Használd minden `fvm flutter` és `fvm dart` parancs futtatásához…”), `pattern` szabálynál a szabály `example`-je. Csak az első szó (pl. `fvm`) félrevezető lenne, mert az `fvm install` nincs engedélyezve.
 - Törzs: hívásforma, szabályonként leírás + példa, pipe-olás, shell nélküli futás következményei (nincs változókifejtés, átirányítás, glob a hoston), kilépési kódok (`69`, `77`) jelentése, a projektfájlokból dolgozó parancsok korlátja.
 - Engedélyek: `.claude/settings.json` összefésülése (meglévő tartalom megtartásával) `permissions.deny` bejegyzésekkel: `Read(./.hoex.yaml)`, `Edit(./.hoex.yaml)`, `Write(./.hoex.yaml)`.
-- Host induláskor: ha `.claude/skills/hoex/SKILL.md` létezik, újragenerálja.
+- Host induláskor és konfigurációváltozás jóváhagyásakor: ha `.claude/skills/hoex/SKILL.md` létezik, újragenerálja.
 - Golden-file tesztek a generált skillre és a settings-összefésülésre.
 
 **Kész, ha:** egy paranccsal telepíthető, és a konfiguráció módosítása után a host újraindítása frissíti (PRD sikerkritérium 3).

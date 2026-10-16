@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/balesz/hoex/internal/approval"
 	"github.com/balesz/hoex/internal/client"
 	"github.com/balesz/hoex/internal/connfile"
 	"github.com/balesz/hoex/internal/events"
@@ -63,8 +64,41 @@ func (s *syncBuffer) String() string {
 }
 
 type fixture struct {
-	root string
-	log  *syncBuffer
+	root   string
+	log    *syncBuffer
+	events *recorder
+	// stop stops the host and waits for it.
+	stop func()
+}
+
+// recorder keeps the config events the host sends.
+type recorder struct {
+	mu      sync.Mutex
+	changed []events.ConfigChanged
+	outcome map[int]string
+}
+
+func (r *recorder) Send(e events.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch e := e.(type) {
+	case events.ConfigChanged:
+		r.changed = append(r.changed, e)
+	case events.ConfigResolved:
+		r.outcome[e.ID] = e.Outcome
+	}
+}
+
+func (r *recorder) changes() []events.ConfigChanged {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]events.ConfigChanged(nil), r.changed...)
+}
+
+func (r *recorder) outcomeOf(id int) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.outcome[id]
 }
 
 // start runs a host daemon for a fresh project and stops it at test end.
@@ -75,12 +109,18 @@ func start(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(root, ".hoex.yaml"), projectConfig, 0o644)
+	return startIn(t, root, nil)
+}
+
+// startIn runs a host daemon in root with the given approval store.
+func startIn(t *testing.T, root string, approvals *approval.Store) *fixture {
+	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	f := &fixture{root: root, log: &syncBuffer{}}
+	f := &fixture{root: root, log: &syncBuffer{}, events: &recorder{outcome: make(map[int]string)}}
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan struct{})
 	done := make(chan error, 1)
@@ -88,8 +128,12 @@ func start(t *testing.T) *fixture {
 		done <- host.Run(ctx, host.Options{
 			Root:     root,
 			Listener: lis,
-			Display:  events.NewLogger(f.log),
+			Display:  events.Multi{events.NewLogger(f.log), f.events},
 			Ready:    func(net.Addr) { close(ready) },
+			// File events are not delivered everywhere; make sure the
+			// interval check alone is fast enough for the tests.
+			WatchInterval: 50 * time.Millisecond,
+			Approvals:     approvals,
 		})
 	}()
 	select {
@@ -97,7 +141,7 @@ func start(t *testing.T) *fixture {
 	case err := <-done:
 		t.Fatalf("host.Run: %v", err)
 	}
-	t.Cleanup(func() {
+	f.stop = sync.OnceFunc(func() {
 		cancel()
 		if err := <-done; err != nil {
 			t.Errorf("host.Run: %v", err)
@@ -105,6 +149,9 @@ func start(t *testing.T) *fixture {
 		if _, err := os.Stat(connfile.Path(root)); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("connection file not removed: %v", err)
 		}
+	})
+	t.Cleanup(func() {
+		f.stop()
 		if t.Failed() {
 			t.Logf("host log:\n%s", f.log)
 		}
@@ -369,6 +416,181 @@ func TestAuditLog(t *testing.T) {
 	}
 	if bytes.Contains(data, []byte("secret-output\\n")) {
 		t.Error("command output in the audit log")
+	}
+}
+
+const touchRule = `  - prefix: touch
+    description: touch
+    example: touch file
+`
+
+// waitChange waits for the n-th config change (1-based).
+func (f *fixture) waitChange(t *testing.T, n int) events.ConfigChanged {
+	t.Helper()
+	waitFor(t, func() bool { return len(f.events.changes()) >= n })
+	return f.events.changes()[n-1]
+}
+
+func (f *fixture) waitOutcome(t *testing.T, id int, want string) {
+	t.Helper()
+	waitFor(t, func() bool { return f.events.outcomeOf(id) != "" })
+	if got := f.events.outcomeOf(id); got != want {
+		t.Fatalf("change %d: outcome %q, want %q", id, got, want)
+	}
+}
+
+func TestConfigChangeNeedsApproval(t *testing.T) {
+	f := start(t)
+	config := filepath.Join(f.root, ".hoex.yaml")
+	write(t, config, projectConfig+touchRule, 0o644)
+
+	c := f.waitChange(t, 1)
+	if strings.Join(c.Diff, "\n") != "+ prefix touch" {
+		t.Errorf("diff = %q", c.Diff)
+	}
+	if got := f.run(t, f.root, "touch", "marker"); got.code != exitcode.Denied {
+		t.Fatalf("before approval: code %d, stderr %q", got.code, got.stderr)
+	}
+
+	c.Decide(true)
+	f.waitOutcome(t, c.ID, events.ConfigApproved)
+	if got := f.run(t, f.root, "touch", "marker"); got.code != 0 {
+		t.Fatalf("after approval: code %d, stderr %q", got.code, got.stderr)
+	}
+
+	data, err := os.ReadFile(filepath.Join(f.root, connfile.Dir, "hoex.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"event":"config_change","change":1`, `"diff":["+ prefix touch"]`, `"event":"config_approved","rules":7,"change":1`} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Errorf("audit log does not contain %s:\n%s", want, data)
+		}
+	}
+}
+
+func TestConfigChangeRejected(t *testing.T) {
+	f := start(t)
+	config := filepath.Join(f.root, ".hoex.yaml")
+	write(t, config, projectConfig+touchRule, 0o644)
+	c := f.waitChange(t, 1)
+	c.Decide(false)
+	f.waitOutcome(t, c.ID, events.ConfigRejected)
+	c.Decide(true) // too late, ignored
+
+	if got := f.run(t, f.root, "touch", "marker"); got.code != exitcode.Denied {
+		t.Fatalf("rejected rule applied: code %d", got.code)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := len(f.events.changes()); n != 1 {
+		t.Fatalf("the rejected content was offered %d times", n)
+	}
+
+	// Another change is offered again.
+	write(t, config, strings.Replace(projectConfig+touchRule, "prefix: touch", "prefix: rm", 1), 0o644)
+	if c2 := f.waitChange(t, 2); strings.Join(c2.Diff, " ") != "+ prefix rm" {
+		t.Errorf("second diff = %q", c2.Diff)
+	}
+}
+
+func TestConfigChangeWithdrawn(t *testing.T) {
+	f := start(t)
+	config := filepath.Join(f.root, ".hoex.yaml")
+	write(t, config, projectConfig+touchRule, 0o644)
+	c := f.waitChange(t, 1)
+	write(t, config, projectConfig, 0o644)
+	f.waitOutcome(t, c.ID, events.ConfigWithdrawn)
+	c.Decide(true) // withdrawn, ignored
+	if got := f.run(t, f.root, "touch", "marker"); got.code != exitcode.Denied {
+		t.Fatalf("withdrawn change applied: code %d", got.code)
+	}
+}
+
+func TestInvalidConfigChangeKeepsRules(t *testing.T) {
+	f := start(t)
+	write(t, filepath.Join(f.root, ".hoex.yaml"), "allow:\n  - prefix: touch\n", 0o644)
+	waitLog(t, f, ".hoex.yaml changed but is invalid, the active rules stay in effect")
+	if got := f.run(t, f.root, "echo", "ok"); got.code != 0 || got.stdout != "ok\n" {
+		t.Errorf("active rules lost: %+v", got)
+	}
+	if n := len(f.events.changes()); n != 0 {
+		t.Errorf("invalid config offered for approval")
+	}
+}
+
+func TestCommentOnlyChangeNeedsNoApproval(t *testing.T) {
+	f := start(t)
+	write(t, filepath.Join(f.root, ".hoex.yaml"), "# comment\n"+projectConfig, 0o644)
+	time.Sleep(300 * time.Millisecond)
+	if n := len(f.events.changes()); n != 0 {
+		t.Errorf("a comment change was offered for approval")
+	}
+}
+
+func TestChangeWhileStoppedNeedsApproval(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvals := &approval.Store{Dir: t.TempDir()}
+	config := filepath.Join(root, ".hoex.yaml")
+	write(t, config, projectConfig, 0o644)
+
+	// First start: the file counts as approved.
+	f := startIn(t, root, approvals)
+	if got := f.run(t, root, "echo", "ok"); got.code != 0 {
+		t.Fatalf("first start: %+v", got)
+	}
+	f.stop()
+
+	// Changed while the host was not running.
+	write(t, config, projectConfig+touchRule, 0o644)
+	f = startIn(t, root, approvals)
+	c := f.waitChange(t, 1)
+	if strings.Join(c.Diff, " ") != "+ prefix touch" {
+		t.Errorf("diff = %q", c.Diff)
+	}
+	if got := f.run(t, root, "touch", "marker"); got.code != exitcode.Denied {
+		t.Fatalf("unapproved rule applied at startup: code %d", got.code)
+	}
+	if got := f.run(t, root, "echo", "ok"); got.code != 0 {
+		t.Fatalf("approved rules lost: %+v", got)
+	}
+	c.Decide(true)
+	f.waitOutcome(t, c.ID, events.ConfigApproved)
+	f.stop()
+
+	// The approval is remembered.
+	f = startIn(t, root, approvals)
+	if got := f.run(t, root, "touch", "marker"); got.code != 0 {
+		t.Fatalf("approved rule after restart: code %d, %s", got.code, got.stderr)
+	}
+	if n := len(f.events.changes()); n != 0 {
+		t.Errorf("approved config offered again")
+	}
+}
+
+func TestRejectedAtStartupStaysRejected(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvals := &approval.Store{Dir: t.TempDir()}
+	if err := approvals.Save(root, []byte(projectConfig)); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, ".hoex.yaml"), projectConfig+touchRule, 0o644)
+
+	f := startIn(t, root, approvals)
+	c := f.waitChange(t, 1)
+	c.Decide(false)
+	f.waitOutcome(t, c.ID, events.ConfigRejected)
+	f.stop()
+
+	f = startIn(t, root, approvals)
+	f.waitChange(t, 1) // asked again after a restart
+	if got := f.run(t, root, "touch", "marker"); got.code != exitcode.Denied {
+		t.Fatalf("rejected rule applied: code %d", got.code)
 	}
 }
 

@@ -18,9 +18,14 @@ type Model struct {
 
 	width, height int
 
-	host     *events.HostStarted
-	warnings []string
-	stopping bool
+	host *events.HostStarted
+	// cfgWarnings are about the active configuration; warning is the
+	// latest problem while running.
+	cfgWarnings []string
+	warning     *events.Warning
+	stopping    bool
+	// change is the config change waiting for approval.
+	change *events.ConfigChanged
 
 	runs []*run
 	byID map[int]*run
@@ -99,10 +104,21 @@ func (m *Model) apply(e events.Event) bool {
 	switch e := e.(type) {
 	case events.HostStarted:
 		m.host = &e
-		m.warnings = append(m.warnings, e.Warnings...)
+		m.cfgWarnings = e.Warnings
 		m.layout()
 	case events.Warning:
-		m.warnings = append(m.warnings, e.Text)
+		m.warning = &e
+		m.layout()
+	case events.ConfigChanged:
+		m.change = &e
+	case events.ConfigResolved:
+		if m.change != nil && m.change.ID == e.ID {
+			m.change = nil
+		}
+		if m.host != nil {
+			m.host.Rules = e.Rules
+		}
+		m.cfgWarnings = e.Warnings
 		m.layout()
 	case events.Stopping:
 		m.stopping = true
@@ -143,6 +159,13 @@ func (m Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "a", "r":
+		if m.change != nil {
+			// The host confirms with ConfigResolved; hide the change now so
+			// that a second key press does nothing.
+			m.change.Decide(msg.String() == "a")
+			m.change = nil
+		}
 	case "up", "k":
 		if m.sel > 0 {
 			m.sel--

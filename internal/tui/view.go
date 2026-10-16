@@ -32,9 +32,12 @@ var (
 const maxWarnings = 3
 
 func (m *Model) headerHeight() int {
-	n := len(m.warnings)
+	n := len(m.cfgWarnings)
 	if n > maxWarnings {
 		n = maxWarnings + 1 // "+N more"
+	}
+	if m.warning != nil {
+		n++
 	}
 	return 1 + n
 }
@@ -66,6 +69,9 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "hoex host"
+	if m.change != nil {
+		v.WindowTitle = "hoex host · config change waiting for approval"
+	}
 	return v
 }
 
@@ -76,13 +82,17 @@ func (m Model) render() string {
 	var b strings.Builder
 	b.WriteString(fit(headerStyle.Render(pad(" "+m.title(), m.width)), m.width))
 	b.WriteByte('\n')
-	for i, w := range m.warnings {
+	for i, w := range m.cfgWarnings {
 		if i == maxWarnings {
-			b.WriteString(warningStyle.Render(fmt.Sprintf("⚠ +%d more warnings", len(m.warnings)-maxWarnings)))
+			b.WriteString(warningStyle.Render(fmt.Sprintf("⚠ +%d more warnings", len(m.cfgWarnings)-maxWarnings)))
 			b.WriteByte('\n')
 			break
 		}
 		b.WriteString(fit(warningStyle.Render("⚠ "+m.relative(w)), m.width))
+		b.WriteByte('\n')
+	}
+	if w := m.warning; w != nil {
+		b.WriteString(fit(warningStyle.Render(w.Time.Format("15:04:05")+" ⚠ "+m.relative(w.Text)), m.width))
 		b.WriteByte('\n')
 	}
 
@@ -95,7 +105,11 @@ func (m Model) render() string {
 		b.WriteString(detail[i])
 		b.WriteByte('\n')
 	}
-	b.WriteString(fit(faintStyle.Render(" ↑/↓ select · f follow latest · pgup/pgdn scroll output · q quit"), m.width))
+	help := " ↑/↓ select · f follow latest · pgup/pgdn scroll output · q quit"
+	if m.change != nil {
+		help = " a approve config change · r reject · ↑/↓ select · q quit"
+	}
+	b.WriteString(fit(faintStyle.Render(help), m.width))
 	return b.String()
 }
 
@@ -168,7 +182,9 @@ func (m Model) renderDetail() []string {
 	add := func(s string) { lines = append(lines, fit(s, w)) }
 
 	r := m.selected()
-	if r == nil {
+	if m.change != nil {
+		lines = m.changeLines(w)
+	} else if r == nil {
 		add("")
 		add(" Waiting for commands from the sandbox…")
 		add("")
@@ -189,6 +205,33 @@ func (m Model) renderDetail() []string {
 		add("")
 	}
 	return lines[:h]
+}
+
+// changeLines shows the config change waiting for approval.
+func (m Model) changeLines(w int) []string {
+	c := m.change
+	lines := []string{
+		fit(warningStyle.Bold(true).Render(" ⚠ "+m.relative(c.File)+" changed"), w),
+		fit(" The new rules are not active until you approve them.", w),
+		sepStyle.Render(strings.Repeat("─", w)),
+	}
+	room := m.bodyHeight() - len(lines) - 2
+	for i, d := range c.Diff {
+		if i == room-1 && len(c.Diff) > room {
+			lines = append(lines, fit(faintStyle.Render(fmt.Sprintf(" … %d more", len(c.Diff)-i)), w))
+			break
+		}
+		style := warningStyle
+		switch d[0] {
+		case '+':
+			style = lipgloss.NewStyle().Foreground(green)
+		case '-':
+			style = stderrStyle
+		}
+		lines = append(lines, fit(style.Render(" "+d), w))
+	}
+	lines = append(lines, fit("", w), fit(boldStyle.Render(" a approve · r reject"), w))
+	return lines
 }
 
 // summary is the status line of a run: directory, start, duration, result.

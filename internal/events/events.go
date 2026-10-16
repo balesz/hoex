@@ -49,6 +49,7 @@ type HostStarted struct {
 	Root     string
 	Port     int
 	Rules    int
+	Checksum string // of the project config file
 	Warnings []string
 }
 
@@ -68,6 +69,39 @@ type HostStopped struct {
 	Err error
 }
 
+// ConfigChanged is sent when the project config file changed to a valid
+// configuration that differs from the active one. The change is not applied
+// until Decide(true) is called; a later ConfigChanged replaces this one.
+type ConfigChanged struct {
+	ID       int
+	Time     time.Time
+	File     string
+	Checksum string
+	// Diff lists the differences as returned by config.Diff.
+	Diff []string
+	// Decide approves or rejects the change. It may be called from any
+	// goroutine; calls for a replaced change are ignored.
+	Decide func(approve bool)
+}
+
+// Config change outcomes.
+const (
+	ConfigApproved = "approved"
+	ConfigRejected = "rejected"
+	// ConfigWithdrawn: the file changed again (or back) before a decision.
+	ConfigWithdrawn = "withdrawn"
+)
+
+// ConfigResolved is sent when a ConfigChanged got its outcome.
+type ConfigResolved struct {
+	ID      int
+	Time    time.Time
+	Outcome string
+	// Rules and Warnings describe the active configuration afterwards.
+	Rules    int
+	Warnings []string
+}
+
 func (Started) isEvent()     {}
 func (Output) isEvent()      {}
 func (Finished) isEvent()    {}
@@ -76,6 +110,9 @@ func (HostStarted) isEvent() {}
 func (Warning) isEvent()     {}
 func (Stopping) isEvent()    {}
 func (HostStopped) isEvent() {}
+
+func (ConfigChanged) isEvent()  {}
+func (ConfigResolved) isEvent() {}
 
 // Sink receives events. Send may be called from several goroutines.
 type Sink interface {

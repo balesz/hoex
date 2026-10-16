@@ -266,3 +266,71 @@ func TestFeedBatches(t *testing.T) {
 		t.Errorf("got %v, want one batch of 2 events", batch)
 	}
 }
+
+func TestConfigChangeApproval(t *testing.T) {
+	h := newHarness(t, 100, 20)
+	h.send(events.HostStarted{Time: t0, Root: "/p", Port: 47800, Rules: 2, Warnings: []string{"old warning"}})
+	h.send(events.Started{RunID: 1, Time: t0, Argv: []string{"echo", "x"}})
+
+	var decided []bool
+	h.send(events.ConfigChanged{ID: 1, Time: t0, File: "/p/.hoex.yaml", Diff: []string{"+ prefix rm", "- prefix flutter", "~ port 1 → 2"},
+		Decide: func(ok bool) { decided = append(decided, ok) }})
+	h.contains("⚠ .hoex.yaml changed", "not active until you approve", "+ prefix rm", "- prefix flutter", "~ port 1 → 2",
+		"a approve config change · r reject")
+	if v := h.m.View(); !strings.Contains(v.WindowTitle, "waiting for approval") {
+		t.Errorf("window title %q", v.WindowTitle)
+	}
+
+	h.key("a")
+	h.key("a")
+	if len(decided) != 1 || !decided[0] {
+		t.Fatalf("decisions %v, want one approval", decided)
+	}
+	h.contains("#1  echo x") // back to the run
+	h.send(events.ConfigResolved{ID: 1, Time: t0, Outcome: events.ConfigApproved, Rules: 3, Warnings: []string{"new warning"}})
+	h.contains("3 rules", "⚠ new warning")
+	if strings.Contains(h.screen(), "old warning") {
+		t.Error("warning of the old config still shown")
+	}
+}
+
+func TestConfigChangeRejectAndWithdraw(t *testing.T) {
+	h := newHarness(t, 100, 20)
+	var decided []bool
+	decide := func(ok bool) { decided = append(decided, ok) }
+	h.send(events.ConfigChanged{ID: 1, Time: t0, File: "/p/.hoex.yaml", Diff: []string{"+ prefix rm"}, Decide: decide})
+	h.key("r")
+	if len(decided) != 1 || decided[0] {
+		t.Fatalf("decisions %v, want one rejection", decided)
+	}
+
+	h.send(events.ConfigChanged{ID: 2, Time: t0, File: "/p/.hoex.yaml", Diff: []string{"+ prefix mv"}, Decide: decide})
+	h.contains("+ prefix mv")
+	h.send(events.ConfigResolved{ID: 2, Time: t0, Outcome: events.ConfigWithdrawn})
+	if strings.Contains(h.screen(), "prefix mv") {
+		t.Error("withdrawn change still shown")
+	}
+	h.key("a")
+	if len(decided) != 1 {
+		t.Error("a key decided a withdrawn change")
+	}
+}
+
+func TestLongConfigDiffIsCut(t *testing.T) {
+	h := newHarness(t, 80, 12)
+	var diff []string
+	for i := range 30 {
+		diff = append(diff, "+ prefix cmd"+strconv.Itoa(i))
+	}
+	h.send(events.ConfigChanged{ID: 1, Time: t0, File: "/p/.hoex.yaml", Diff: diff, Decide: func(bool) {}})
+	h.contains("+ prefix cmd0", "more", "a approve · r reject")
+}
+
+func TestLatestWarningShown(t *testing.T) {
+	h := newHarness(t, 100, 20)
+	h.send(events.Warning{Time: t0, Text: "first"}, events.Warning{Time: t0, Text: "second"})
+	h.contains("10:48:31 ⚠ second")
+	if strings.Contains(h.screen(), "first") {
+		t.Error("older warning still shown")
+	}
+}

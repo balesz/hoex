@@ -176,7 +176,7 @@ Az eszköz szándékosan rést nyit a sandboxon, ezért a védelem több rétegr
 2. Shell nélküli futtatás és `deny_chaining`: egy engedélyezett parancs nem indíthat másodikat.
 3. Csak helyi gépen figyelő port, futásonként generált tokennel; a sandbox hálózati szabályzatában a portot külön engedélyezni kell.
 4. A projektszintű konfiguráció olvasása és írása tiltott a Claude Code beállításaiban.
-5. A host indításkor rögzíti a projektszintű konfiguráció ellenőrző összegét. Ha a fájl futás közben megváltozik, nem veszi át automatikusan: a saját felületén megmutatja a változást, és jóváhagyást kér. Ez akkor is véd, ha az agent a Claude Code engedélyeit megkerülve, parancsból írja a fájlt.
+5. A host a projektszintű konfiguráció utoljára jóváhagyott tartalmát a hoston, a projekten kívül tárolja (`~/.local/state/hoex/approved/`), ahová a sandbox nem ír. Ha a fájl ettől eltér, akár futás közben változott meg, akár amíg a host nem futott, a host nem veszi át automatikusan: a saját felületén megmutatja a változást, és jóváhagyást kér; addig a jóváhagyott szabályok érvényesek. Egy projektben az első indításkor a meglévő fájl jóváhagyottnak számít. Ez akkor is véd, ha az agent a Claude Code engedélyeit megkerülve, parancsból írja a fájlt.
 6. Minden futás látható a host termináljában.
 
 **Ismert korlát: projektfájlokból dolgozó parancsok.**

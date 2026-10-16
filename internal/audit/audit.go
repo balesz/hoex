@@ -18,11 +18,13 @@ const FileName = "hoex.log"
 
 // Record is one line of the log.
 type Record struct {
-	Time  time.Time `json:"time"`
-	Event string    `json:"event"` // "start", "stop", "run" or "deny"
-	Run   int       `json:"run,omitempty"`
-	Argv  []string  `json:"argv,omitempty"`
-	Cwd   string    `json:"cwd,omitempty"`
+	Time time.Time `json:"time"`
+	// Event is "start", "stop", "run", "deny", "config_change" or
+	// "config_<outcome>" (config_approved, config_rejected, config_withdrawn).
+	Event string   `json:"event"`
+	Run   int      `json:"run,omitempty"`
+	Argv  []string `json:"argv,omitempty"`
+	Cwd   string   `json:"cwd,omitempty"`
 	// ExitCode is set for a run that finished.
 	ExitCode *int `json:"exit_code,omitempty"`
 	// Aborted is set for a run that was stopped, e.g. by the sandbox.
@@ -32,6 +34,11 @@ type Record struct {
 	// Details of start: listening port and number of rules.
 	Port  int `json:"port,omitempty"`
 	Rules int `json:"rules,omitempty"`
+	// Config changes: the change number, the project file checksum and the
+	// difference to the active rules.
+	Change   int      `json:"change,omitempty"`
+	Checksum string   `json:"checksum,omitempty"`
+	Diff     []string `json:"diff,omitempty"`
 }
 
 // Log is an events.Sink that writes the audit log.
@@ -65,7 +72,11 @@ func (l *Log) Close() error {
 func (l *Log) Send(e events.Event) {
 	switch e := e.(type) {
 	case events.HostStarted:
-		l.write(Record{Time: e.Time, Event: "start", Port: e.Port, Rules: e.Rules})
+		l.write(Record{Time: e.Time, Event: "start", Port: e.Port, Rules: e.Rules, Checksum: e.Checksum})
+	case events.ConfigChanged:
+		l.write(Record{Time: e.Time, Event: "config_change", Change: e.ID, Checksum: e.Checksum, Diff: e.Diff})
+	case events.ConfigResolved:
+		l.write(Record{Time: e.Time, Event: "config_" + e.Outcome, Change: e.ID, Rules: e.Rules})
 	case events.Started:
 		l.mu.Lock()
 		l.running[e.RunID] = e

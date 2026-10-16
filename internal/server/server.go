@@ -30,7 +30,7 @@ type Server struct {
 
 	root   string
 	token  string
-	policy *policy.Policy
+	policy atomic.Pointer[policy.Policy]
 	sink   events.Sink
 	nextID atomic.Int64
 	grpc   *grpc.Server
@@ -39,10 +39,16 @@ type Server struct {
 // New returns a server for the project at root. root must be absolute with
 // symlinks resolved.
 func New(root, token string, p *policy.Policy, sink events.Sink) *Server {
-	s := &Server{root: root, token: token, policy: p, sink: sink}
+	s := &Server{root: root, token: token, sink: sink}
+	s.policy.Store(p)
 	s.grpc = grpc.NewServer(grpc.StreamInterceptor(s.auth))
 	hoexv1.RegisterHostRunnerServer(s.grpc, s)
 	return s
+}
+
+// SetPolicy replaces the rules for requests that arrive from now on.
+func (s *Server) SetPolicy(p *policy.Policy) {
+	s.policy.Store(p)
 }
 
 // Serve accepts connections on lis until Stop is called.
@@ -95,7 +101,7 @@ func (s *Server) Run(req *hoexv1.RunRequest, stream grpc.ServerStreamingServer[h
 	if err != nil {
 		return reject(err.Error())
 	}
-	if d := s.policy.Check(argv); !d.Allowed {
+	if d := s.policy.Load().Check(argv); !d.Allowed {
 		return reject(d.Reason)
 	}
 

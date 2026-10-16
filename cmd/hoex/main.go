@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/balesz/hoex/internal/approval"
 	"github.com/balesz/hoex/internal/client"
 	"github.com/balesz/hoex/internal/config"
 	"github.com/balesz/hoex/internal/events"
@@ -60,7 +61,11 @@ func runHost(port int, plain bool) int {
 	if err != nil {
 		fail(exitcode.Internal, err.Error())
 	}
-	opts := host.Options{Root: cwd, UserConfig: userFile, Port: port}
+	approvedDir, err := approval.DefaultDir()
+	if err != nil {
+		fail(exitcode.Internal, err.Error())
+	}
+	opts := host.Options{Root: cwd, UserConfig: userFile, Port: port, Approvals: &approval.Store{Dir: approvedDir}}
 	if plain {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
