@@ -116,6 +116,13 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 
 **Kész, ha:** a PRD mindkét példakonfigurációja betölt, a hibás változatok a megfelelő sorszámot adják.
 
+**Állapot: kész (2026-10-16).** Megvalósítás közben rögzített részletek:
+- YAML: `go.yaml.in/yaml/v3` (a `gopkg.in/yaml.v3` karbantartott forkja); a fájl `yaml.Node` fán validálódik, minden hiba egyszerre, `fájl:sor: üzenet` alakban.
+- `deny_chaining` alapértéke `true`; az `allow` lista opcionális (egy bejegyzés csak `port`-ot is megadhat).
+- `port`: felhasználói szinten a `projects` bejegyzésben; a projektszint felülírja.
+- Figyelmeztetések (`Config.Warnings`, nem akadályozzák az indulást): a szabály engedi a `<shell> -c …` alakot (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, `env`, `xargs`), illetve a szabály `example`-je nem illik a saját szabályára.
+- A `pattern` `^(?:…)$` közé kerül, így a `|` alternatíva sem lóg ki a horgonyból.
+
 ### M2 – MVP végponttól végpontig
 
 - `internal/connfile`: írás atomikusan (`0600`), keresés felfelé, törlés leálláskor (SIGINT/SIGTERM kezelése).
@@ -151,7 +158,7 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 ### M6 – Skillgenerálás
 
 - `internal/skill`: agentenkénti `text/template` sablon (`embed`-del), regiszter `claude` kulccsal; ismeretlen érték → hiba a támogatott listával.
-- `SKILL.md` frontmatter: `name: hoex`, `description` a prefixek / minták első szavának felsorolásával („Használd minden `flutter` és `dart` parancs futtatásához…”).
+- `SKILL.md` frontmatter: `name: hoex`, `description` a parancsok felsorolásával: `prefix` szabálynál a teljes, akár többszavas prefix („Használd minden `fvm flutter` és `fvm dart` parancs futtatásához…”), `pattern` szabálynál a szabály `example`-je. Csak az első szó (pl. `fvm`) félrevezető lenne, mert az `fvm install` nincs engedélyezve.
 - Törzs: hívásforma, szabályonként leírás + példa, pipe-olás, shell nélküli futás következményei (nincs változókifejtés, átirányítás, glob a hoston), kilépési kódok (`69`, `77`) jelentése, a projektfájlokból dolgozó parancsok korlátja.
 - Engedélyek: `.claude/settings.json` összefésülése (meglévő tartalom megtartásával) `permissions.deny` bejegyzésekkel: `Read(./.hoex.yaml)`, `Edit(./.hoex.yaml)`, `Write(./.hoex.yaml)`.
 - Host induláskor: ha `.claude/skills/hoex/SKILL.md` létezik, újragenerálja.

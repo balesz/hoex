@@ -1,5 +1,7 @@
 GO ?= go
 BIN := bin
+# A -race cgo-t igényel; C fordító nélkül: make test RACE=
+RACE ?= -race
 
 .PHONY: build build-all test lint proto proto-check clean
 
@@ -14,7 +16,7 @@ build-all:
 	done; done
 
 test:
-	$(GO) test -race ./...
+	$(GO) test $(RACE) ./...
 
 lint:
 	golangci-lint run ./...

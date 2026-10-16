@@ -3,6 +3,7 @@ module github.com/balesz/hoex
 go 1.27.2
 
 require (
+	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 )

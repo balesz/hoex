@@ -137,7 +137,8 @@ allow:
 - A `pattern` mindig a teljes parancsra illeszkedik, akkor is, ha a `^` és `$` hiányzik.
 - A `prefix` teljes szavakra illeszkedik: a `flutter` engedélyezi a `flutter test` parancsot, de a `flutterx` nevűt nem.
 - A `deny_chaining: true` elutasítja azokat a kéréseket, amelyek argumentumai parancsösszefűző jelet tartalmaznak (`;`, `&&`, `||`, `|`, sortörés, `$(`, backtick). Shell nélküli futtatásnál ezek amúgy sem hajtódnának végre, de így az agent egyértelmű hibát kap.
-- A `port` kulcs (opcionális, mindkét szinten) felülírja az alapértelmezett `47800`-as portot; a projektszint az erősebb, a `--port` kapcsoló mindkettőt felülírja.
+- A `port` kulcs (opcionális; felhasználói szinten a `projects` bejegyzésben) felülírja az alapértelmezett `47800`-as portot; a projektszint az erősebb, a `--port` kapcsoló mindkettőt felülírja.
+- A `deny_chaining` alapértéke `true`, és szintenként a saját szabályaira vonatkozik; ha egy parancsra több szint szabálya illik, a szigorúbb érvényes.
 - Érvénytelen YAML vagy regex esetén a host nem indul el, és megnevezi a hibás sort.
 
 ## Parancsvégrehajtás
