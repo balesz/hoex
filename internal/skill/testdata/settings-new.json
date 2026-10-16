@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(/.hoex.yaml)",
+      "Edit(/.hoex.yaml)"
+    ]
+  }
+}

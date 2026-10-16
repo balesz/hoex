@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 
 func readRecords(t *testing.T, dir string) []Record {
 	t.Helper()
-	f, err := os.Open(filepath.Join(dir, FileName))
+	f, err := os.Open(Path(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +72,7 @@ func TestLog(t *testing.T) {
 	if aborted.Aborted != "context canceled" || aborted.ExitCode != nil {
 		t.Errorf("aborted record: %+v", aborted)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, FileName))
+	data, _ := os.ReadFile(Path(dir))
 	if json.Valid(data) || len(data) == 0 {
 		t.Error("expected JSON lines, not one JSON document")
 	}

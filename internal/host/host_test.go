@@ -632,3 +632,79 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestInstalledSkillFollowsRules(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, ".hoex.yaml"), projectConfig, 0o644)
+	skillFile := filepath.Join(root, ".claude", "skills", "hoex", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, skillFile, "outdated", 0o644)
+
+	f := startIn(t, root, nil)
+	skill := func() string {
+		data, _ := os.ReadFile(skillFile)
+		return string(data)
+	}
+	if !strings.Contains(skill(), "### `echo`") {
+		t.Fatalf("skill not regenerated at startup:\n%s", skill())
+	}
+
+	write(t, filepath.Join(root, ".hoex.yaml"), projectConfig+touchRule, 0o644)
+	c := f.waitChange(t, 1)
+	if strings.Contains(skill(), "### `touch`") {
+		t.Fatal("skill lists a rule before approval")
+	}
+	c.Decide(true)
+	f.waitOutcome(t, c.ID, events.ConfigApproved)
+	if !strings.Contains(skill(), "### `touch`") {
+		t.Error("skill not updated after approval")
+	}
+}
+
+func TestLinksToOutsideAreNotWritten(t *testing.T) {
+	outside := t.TempDir()
+	victim := filepath.Join(outside, ".bashrc")
+	write(t, victim, "original\n", 0o644)
+
+	for name, link := range map[string]func(root string) error{
+		"log file": func(root string) error {
+			if err := os.Mkdir(filepath.Join(root, ".hoex"), 0o755); err != nil {
+				return err
+			}
+			return os.Symlink(victim, filepath.Join(root, ".hoex", "hoex.log"))
+		},
+		"state directory": func(root string) error {
+			return os.Symlink(outside, filepath.Join(root, ".hoex"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(t, filepath.Join(root, ".hoex.yaml"), projectConfig, 0o644)
+			if err := link(root); err != nil {
+				t.Fatal(err)
+			}
+			lis, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = host.Run(context.Background(), host.Options{Root: root, Listener: lis, Display: events.NewLogger(&syncBuffer{})})
+			if err == nil {
+				t.Fatal("host started with a link to outside the project")
+			}
+			if data, _ := os.ReadFile(victim); string(data) != "original\n" {
+				t.Errorf("file outside the project changed: %q", data)
+			}
+			if entries, _ := os.ReadDir(outside); len(entries) != 1 {
+				t.Errorf("files created outside the project: %v", entries)
+			}
+		})
+	}
+}

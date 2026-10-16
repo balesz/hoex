@@ -198,11 +198,21 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - `internal/skill`: agentenkénti `text/template` sablon (`embed`-del), regiszter `claude` kulccsal; ismeretlen érték → hiba a támogatott listával.
 - `SKILL.md` frontmatter: `name: hoex`, `description` a parancsok felsorolásával: `prefix` szabálynál a teljes, akár többszavas prefix („Használd minden `fvm flutter` és `fvm dart` parancs futtatásához…”), `pattern` szabálynál a szabály `example`-je. Csak az első szó (pl. `fvm`) félrevezető lenne, mert az `fvm install` nincs engedélyezve.
 - Törzs: hívásforma, szabályonként leírás + példa, pipe-olás, shell nélküli futás következményei (nincs változókifejtés, átirányítás, glob a hoston), kilépési kódok (`69`, `77`) jelentése, a projektfájlokból dolgozó parancsok korlátja.
-- Engedélyek: `.claude/settings.json` összefésülése (meglévő tartalom megtartásával) `permissions.deny` bejegyzésekkel: `Read(./.hoex.yaml)`, `Edit(./.hoex.yaml)`, `Write(./.hoex.yaml)`.
+- Engedélyek: `.claude/settings.json` összefésülése (meglévő tartalom megtartásával) `permissions.deny` bejegyzésekkel: `Read(/.hoex.yaml)`, `Edit(/.hoex.yaml)`.
 - Host induláskor és konfigurációváltozás jóváhagyásakor: ha `.claude/skills/hoex/SKILL.md` létezik, újragenerálja.
 - Golden-file tesztek a generált skillre és a settings-összefésülésre.
 
 **Kész, ha:** egy paranccsal telepíthető, és a konfiguráció módosítása után a host újraindítása frissíti (PRD sikerkritérium 3).
+
+**Állapot: kész (2026-10-16).** Megvalósítás közben rögzített részletek:
+- A skill angol nyelvű (a felhasználó kérése); a szabályok `description` mezője változatlanul kerül bele.
+- Engedélyszabályok a Claude Code dokumentációja alapján: projektbeállításban a `/` a projektgyökérhez horgonyoz (a `./` az aktuális könyvtárhoz, ami alkönyvtárból nem védene). A `Write(path)` szabályt a Claude Code nem nézi; az `Edit` minden szerkesztő eszközre, a `Read` tiltás az írásra is vonatkozik, és a Bashben felismert fájlparancsokra (`cat`, `sed`, átirányítás) is. Tetszőleges alfolyamatot (pl. Python script) nem véd; ezt a host jóváhagyása fedi le.
+- A `settings.json` csak akkor íródik, ha hiányzik valamelyik szabály; ilyenkor a kulcsok ábécérendbe kerülnek. Érvénytelen JSON vagy nem várt szerkezet esetén hiba, a fájl nem változik.
+- A `--skill claude` az érvényes konfigurációból dolgozik: a jóváhagyott tartalomból, ha van, különben a fájlból; jóváhagyást nem rögzít. Ha a fájl eltér a jóváhagyottól, ezt jelzi.
+- A host indításkor és minden konfigurációcserénél (jóváhagyás, illetve érdemi eltérés nélküli átvétel) újragenerálja a telepített skillt; hiba esetén figyelmeztetés.
+- Az írás atomikus (ideiglenes fájl + átnevezés).
+- **Biztonsági javítás (`internal/projfs`):** a sandbox a projektben bármit szimbolikus linkre cserélhet, például a `.hoex/hoex.log`-ot a host `~/.bashrc`-jére. Korábban a host oda fűzte volna a naplósorokat, bennük az elutasított parancs argumentumaival, és egy `"$(…)"` argumentum a következő shell indításakor lefutott volna. A host minden projektbe írása (`.hoex/` könyvtár, kapcsolati fájl, napló, skill, `.claude/settings.json`) most `os.Root`-on keresztül megy, ami a művelet pillanatában utasítja el a projektből kivezető utakat. Ha a napló vagy a `.hoex` ilyen link, a host nem indul el.
+- Leírás: `prefix` szabálynál a teljes prefix, `pattern` szabálynál az `example` kerül a felsorolásba; a törzsben a minta `^(?:…)$` alakban szerepel.
 
 ### M7 – Terjesztés és dokumentáció
 

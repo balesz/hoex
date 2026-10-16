@@ -19,6 +19,7 @@ import (
 	"github.com/balesz/hoex/internal/events"
 	"github.com/balesz/hoex/internal/exitcode"
 	"github.com/balesz/hoex/internal/host"
+	"github.com/balesz/hoex/internal/skill"
 	"github.com/balesz/hoex/internal/tui"
 )
 
@@ -41,7 +42,7 @@ func main() {
 
 	switch {
 	case *skill != "":
-		fail(exitcode.Internal, "--skill is not implemented yet")
+		os.Exit(installSkill(*skill))
 	case *mode == "host":
 		os.Exit(runHost(*port, *noTUI || !isTerminal(os.Stdout)))
 	case *mode == "sandbox":
@@ -52,12 +53,14 @@ func main() {
 	}
 }
 
-func runHost(port int, plain bool) int {
+// hostPaths returns the project root (the working directory), the user
+// config file and the store of approved project configs.
+func hostPaths() (root, userFile string, approvals *approval.Store) {
 	userFile, err := config.UserFilePath()
 	if err != nil {
 		fail(exitcode.Internal, err.Error())
 	}
-	cwd, err := os.Getwd()
+	root, err = os.Getwd()
 	if err != nil {
 		fail(exitcode.Internal, err.Error())
 	}
@@ -65,7 +68,40 @@ func runHost(port int, plain bool) int {
 	if err != nil {
 		fail(exitcode.Internal, err.Error())
 	}
-	opts := host.Options{Root: cwd, UserConfig: userFile, Port: port, Approvals: &approval.Store{Dir: approvedDir}}
+	return root, userFile, &approval.Store{Dir: approvedDir}
+}
+
+// installSkill writes the agent skill from the active configuration: the
+// last approved project config, or the current file if none was approved.
+func installSkill(agent string) int {
+	root, userFile, approvals := hostPaths()
+	cfg, err := host.ActiveConfig(root, userFile, approvals)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hoex:", err)
+		return 1
+	}
+	written, err := skill.Install(agent, cfg.Root, cfg.Config)
+	for _, f := range written {
+		fmt.Println("wrote", f)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hoex:", err)
+		return 1
+	}
+	if cfg.Pending {
+		fmt.Printf("note: %s changed since it was last approved; the skill describes the approved rules.\n", config.ProjectFileName)
+	}
+	if len(cfg.Config.Rules) == 0 {
+		fmt.Printf("note: no allow rules yet; add them to %s.\n", config.ProjectFileName)
+	}
+	fmt.Println("The hoex host keeps the skill up to date when the rules change.")
+	return 0
+}
+
+func runHost(port int, plain bool) int {
+	cwd, userFile, approvals := hostPaths()
+	var err error
+	opts := host.Options{Root: cwd, UserConfig: userFile, Port: port, Approvals: approvals}
 	if plain {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()

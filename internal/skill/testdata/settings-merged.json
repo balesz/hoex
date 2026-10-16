@@ -1,0 +1,13 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": [
+      "Bash(hoex --mode sandbox *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Edit(/.hoex.yaml)",
+      "Read(/.hoex.yaml)"
+    ]
+  }
+}

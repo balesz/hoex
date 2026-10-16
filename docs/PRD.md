@@ -160,10 +160,11 @@ Ha bármelyik ellenőrzés elbukik, a parancs nem indul el, és a sandbox error 
 A `hoex --skill claude` a konfigurációból dinamikusan generálja a skillt, és mindig projektszinten telepíti, mert az engedélyezett parancsok projektenként eltérnek.
 
 - **Hely:** `<projekt>/.claude/skills/hoex/SKILL.md`.
-- **Leírás (frontmatter).** Név szerint felsorolja a parancsokat, hogy a Claude Code már a parancs nevéből tudja, mikor kell a skillt használnia. Példa: „Használd minden `flutter` és `dart` parancs futtatásához; ezeket ne futtasd közvetlenül a sandboxban.”
+- **Nyelv.** A skill angol nyelvű; a szabályok `description` mezője változatlanul, a felhasználó által írt nyelven kerül bele.
+- **Leírás (frontmatter).** Név szerint felsorolja a parancsokat, hogy a Claude Code már a parancs nevéből tudja, mikor kell a skillt használnia. Példa: „Use this to run `flutter` and `dart` commands: they must run on the host through hoex, never directly in the sandbox.”
 - **Törzs.** A hívás formája (`hoex --mode sandbox -- <parancs>`), szabályonként a leírás és a példa, a pipe-olás lehetősége, a shell nélküli futás következményei, valamint az elutasítás és az elérhetetlen host jelentése.
-- **Engedélyek.** Projektszintű konfigurációnál a telepítés a Claude Code projektbeállításaiban tiltja a konfigurációs fájl olvasását és írását.
-- **Automatikus frissítés.** A host indításkor ellenőrzi, hogy a skill telepítve van-e a projektben; ha igen, a konfiguráció alapján újragenerálja.
+- **Engedélyek.** A telepítés a Claude Code projektbeállításaiban (`.claude/settings.json`, a meglévő tartalom megtartásával) tiltja a konfigurációs fájl olvasását és írását: `Read(/.hoex.yaml)`, `Edit(/.hoex.yaml)`.
+- **Automatikus frissítés.** A host indításkor és egy konfigurációváltozás jóváhagyásakor ellenőrzi, hogy a skill telepítve van-e a projektben; ha igen, az érvényes (jóváhagyott) konfiguráció alapján újragenerálja.
 - **Bővíthetőség.** Az első verzió csak a `claude` értéket támogatja, de a generálás agentenkénti sablonra épül, hogy később más agent is felvehető legyen a konfiguráció módosítása nélkül.
 
 ## Biztonság
@@ -178,6 +179,7 @@ Az eszköz szándékosan rést nyit a sandboxon, ezért a védelem több rétegr
 4. A projektszintű konfiguráció olvasása és írása tiltott a Claude Code beállításaiban.
 5. A host a projektszintű konfiguráció utoljára jóváhagyott tartalmát a hoston, a projekten kívül tárolja (`~/.local/state/hoex/approved/`), ahová a sandbox nem ír. Ha a fájl ettől eltér, akár futás közben változott meg, akár amíg a host nem futott, a host nem veszi át automatikusan: a saját felületén megmutatja a változást, és jóváhagyást kér; addig a jóváhagyott szabályok érvényesek. Egy projektben az első indításkor a meglévő fájl jóváhagyottnak számít. Ez akkor is véd, ha az agent a Claude Code engedélyeit megkerülve, parancsból írja a fájlt.
 6. Minden futás látható a host termináljában.
+7. A host a projektbe csak a projekten belül ír (állapotkönyvtár, napló, skill, Claude Code beállítások); a projektből kivezető szimbolikus linkeket nem követi, mert ezeket a sandbox hozhatja létre.
 
 **Ismert korlát: projektfájlokból dolgozó parancsok.**
 

@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/balesz/hoex/internal/connfile"
 	"github.com/balesz/hoex/internal/events"
+	"github.com/balesz/hoex/internal/projfs"
 )
 
 // FileName is the log file inside the .hoex directory.
@@ -51,9 +53,16 @@ type Log struct {
 	OnError func(error)
 }
 
-// Open opens (or creates) the log in dir for appending.
-func Open(dir string) (*Log, error) {
-	f, err := os.OpenFile(filepath.Join(dir, FileName), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+// Path returns the log file of a project.
+func Path(root string) string {
+	return filepath.Join(root, connfile.Dir, FileName)
+}
+
+// Open opens (or creates) the log of the project at root for appending. It
+// refuses a log file or .hoex directory that is a link to outside the
+// project: the sandbox could point it at a file the host user owns.
+func Open(root string) (*Log, error) {
+	f, err := projfs.OpenAppend(root, filepath.Join(connfile.Dir, FileName), 0o644)
 	if err != nil {
 		return nil, err
 	}

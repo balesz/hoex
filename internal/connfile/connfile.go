@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/balesz/hoex/internal/projfs"
 )
 
 const (
@@ -34,17 +36,10 @@ func Path(root string) string {
 }
 
 // EnsureDir creates root/.hoex with a .gitignore that keeps the whole
-// directory out of version control.
+// directory out of version control. Like every write of the host into the
+// project, it does not follow links to outside the project.
 func EnsureDir(root string) error {
-	dir := filepath.Join(root, Dir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	ignore := filepath.Join(dir, ".gitignore")
-	if _, err := os.Stat(ignore); errors.Is(err, fs.ErrNotExist) {
-		return os.WriteFile(ignore, []byte("*\n"), 0o644)
-	}
-	return nil
+	return projfs.CreateFile(root, filepath.Join(Dir, ".gitignore"), []byte("*\n"), 0o644)
 }
 
 // Write atomically writes the connection file of root with mode 0600.
@@ -56,28 +51,12 @@ func Write(root string, info Info) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Join(root, Dir), FileName+".*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), Path(root))
+	return projfs.WriteFile(root, filepath.Join(Dir, FileName), append(data, '\n'), 0o600)
 }
 
 // Remove deletes the connection file of root. A missing file is not an error.
 func Remove(root string) error {
-	err := os.Remove(Path(root))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	return err
+	return projfs.Remove(root, filepath.Join(Dir, FileName))
 }
 
 // Find looks for .hoex/connection in dir and its parents, like git looks for

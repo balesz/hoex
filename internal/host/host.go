@@ -22,6 +22,7 @@ import (
 	"github.com/balesz/hoex/internal/events"
 	"github.com/balesz/hoex/internal/policy"
 	"github.com/balesz/hoex/internal/server"
+	"github.com/balesz/hoex/internal/skill"
 	"github.com/balesz/hoex/internal/watch"
 )
 
@@ -49,11 +50,8 @@ type Options struct {
 
 // Run serves until ctx is canceled, then removes the connection file.
 func Run(ctx context.Context, o Options) error {
-	root, err := filepath.Abs(o.Root)
+	root, err := resolveRoot(o.Root)
 	if err != nil {
-		return err
-	}
-	if root, err = filepath.EvalSymlinks(root); err != nil {
 		return err
 	}
 	data, err := config.ReadProjectFile(root)
@@ -70,7 +68,7 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	port := cfg.Port
+	port := active.Port
 	if o.Port != 0 {
 		port = o.Port
 	}
@@ -95,7 +93,7 @@ func Run(ctx context.Context, o Options) error {
 		_ = lis.Close()
 		return err
 	}
-	log, err := audit.Open(filepath.Join(root, connfile.Dir))
+	log, err := audit.Open(root)
 	if err != nil {
 		_ = lis.Close()
 		return err
@@ -113,6 +111,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	defer func() { _ = connfile.Remove(root) }()
 
+	updateSkill(root, active, sink)
 	sink.Send(events.HostStarted{
 		Time: time.Now(), Root: root, Port: actual, Rules: len(active.Rules),
 		Checksum: active.Checksum, Warnings: configWarnings(active),
@@ -123,7 +122,10 @@ func Run(ctx context.Context, o Options) error {
 	rl := &reloader{
 		root: root, userFile: o.UserConfig, sink: sink,
 		active: active, seen: active.Checksum,
-		apply: func(c *config.Config) { srv.SetPolicy(policy.New(c.Rules)) },
+		apply: func(c *config.Config) {
+			srv.SetPolicy(policy.New(c.Rules))
+			updateSkill(root, c, sink)
+		},
 		approved: func(data []byte) {
 			if o.Approvals == nil {
 				return
@@ -169,6 +171,60 @@ func Run(ctx context.Context, o Options) error {
 		srv.Stop(5 * time.Second)
 		return nil
 	}
+}
+
+func resolveRoot(dir string) (string, error) {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(root)
+}
+
+// updateSkill regenerates the agent skills installed in the project so that
+// they describe the active rules.
+func updateSkill(root string, cfg *config.Config, sink events.Sink) {
+	if _, err := skill.Update(root, cfg); err != nil {
+		sink.Send(events.Warning{Time: time.Now(), Text: "updating the agent skill: " + err.Error()})
+	}
+}
+
+// Active is the configuration a host would start with in a project.
+type Active struct {
+	Root   string
+	Config *config.Config
+	// Pending is set if the project file differs from the approved content.
+	Pending bool
+}
+
+// ActiveConfig returns the configuration in effect for the project at dir:
+// the last approved project config, or the current file if none was
+// approved yet. Unlike Run, it records nothing.
+func ActiveConfig(dir, userFile string, approvals *approval.Store) (*Active, error) {
+	root, err := resolveRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	data, err := config.ReadProjectFile(root)
+	if err != nil {
+		return nil, err
+	}
+	if approvals != nil {
+		approved, ok, err := approvals.Load(root)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if cfg, err := config.LoadData(root, userFile, approved); err == nil {
+				return &Active{Root: root, Config: cfg, Pending: config.Checksum(approved) != config.Checksum(data)}, nil
+			}
+		}
+	}
+	cfg, err := config.LoadData(root, userFile, data)
+	if err != nil {
+		return nil, err
+	}
+	return &Active{Root: root, Config: cfg}, nil
 }
 
 // approvedConfig returns the configuration from the last approved content of
