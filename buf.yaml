@@ -1,0 +1,13 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # A PRD-ben rögzített nevek (HostRunner, RunEvent) maradnak.
+    - SERVICE_SUFFIX
+    - RPC_RESPONSE_STANDARD_NAME
+breaking:
+  use:
+    - FILE
