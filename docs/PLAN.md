@@ -74,7 +74,7 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 | Leállítás | A runner saját folyamatcsoportba indítja a parancsot (`Setpgid`); megszakításkor SIGTERM a csoportnak, 5 mp után SIGKILL. |
 | Kimeneti sorrend | Két goroutine olvassa a pipe-okat, egy közös csatornán át, egyetlen küldő goroutine írja a streamet, így a sorrend az olvasás sorrendje. |
 | Token | 32 bájt `crypto/rand`, hex; összehasonlítás `subtle.ConstantTimeCompare`-rel, metaadat kulcs: `authorization: Bearer …`. |
-| Port | Alapból véletlen, `127.0.0.1`-en figyel. Ha az M0 próba szerint ez nem érhető el a sandboxból, lásd lent. |
+| Port | **Eltérés a PRD-től (M0 eredménye):** rögzített alapport (`47800`), `127.0.0.1`-en. Felülírható a `--port` kapcsolóval vagy a konfiguráció `port` kulcsával, ha több projekt fut egyszerre. A token továbbra is futásonként véletlen; a sandbox a portot a kapcsolati fájlból olvassa. Foglalt portnál a host egyértelmű hibával áll le. |
 
 ## Mérföldkövek
 
@@ -85,10 +85,26 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - **Hálózati próba** (a PRD fő kockázata): minimális gRPC szerver a hoston, kliens Docker sandboxban `host.docker.internal`-lal, macOS-en (Docker Desktop) és Linuxon is. Kérdések:
   - Eléri-e a konténer a hoston `127.0.0.1`-re kötött portot? (Linuxon a `host.docker.internal` gyakran a bridge gateway-re mutat, és a loopbackre kötött port ott nem látszik.)
   - A Docker Sandboxes hálózati szabályzata portonként engedélyez (`localhost:<port>`); véletlen port mellett ez minden indításkor új engedélyt kérne.
-  - A gRPC kliens nem a proxyn megy-e (`HTTPS_PROXY`/`NO_PROXY`); szükség esetén `grpc.WithNoProxy()`.
+  - Átmegy-e a gRPC a sandbox proxyján (`HTTPS_PROXY`), vagy `grpc.WithNoProxy()` kell.
 - **Tartalék, ha a próba elbukik:** rögzített vagy konfigurálható port (`--port`, alapból egy állandó érték), illetve Linuxon a docker bridge címére kötés. Az eredményt és a döntést ebbe a fájlba kell visszaírni.
+- Eszköz: `cmd/hoex-probe` (`server` a hoston, `client` a sandboxban) a valódi `HostRunner` protokollal; tesztek: hibás token, stdout + stderr + kilépési kód, 16 MiB stream, megszakítás menet közben.
 
-**Kész, ha:** CI zöld, a próba eredménye dokumentálva mindkét platformon.
+**Eredmény – Linux host, Docker Sandboxes (2026-10-16)**
+
+| Kérdés | Eredmény |
+| --- | --- |
+| `127.0.0.1`-re kötött port elérhető? | **Igen.** A sandbox a `host.docker.internal`-t a proxyn át a host `localhost`-jára továbbítja, `0.0.0.0`-ra kötés nem kell. |
+| gRPC (HTTP/2 titkosítás nélkül) átmegy a proxyn? | **Igen**, mind a négy teszt átment; a megszakítás eljut a hostig. |
+| Proxy nélkül (`grpc.WithNoProxy()`)? | Szintén működik: a közvetlen kapcsolatot is ugyanaz a szabályzat engedi át. A kliens marad az alapbeállításnál (környezeti proxy), külön kezelés nem kell. |
+| Hálózati szabályzat | **Portonként jóváhagyás kell** (`Approval required for localhost:<port>`, utána `sbx policy approval respond …` vagy `sbx policy allow network localhost:<port>`). Jóváhagyás előtt a kliens csak `connection reset` / `EOF` hibát lát. |
+
+**Következmények**
+- Véletlen port helyett rögzített alapport (lásd Tervezési döntések), így a jóváhagyás egyszeri.
+- A sandbox oldal hibaüzenete elérhetetlen hostnál említse a lehetséges okokat: nem fut a host, vagy a port nincs engedélyezve (`sbx policy allow network localhost:<port>`). Ha a proxy 403-at ad, ezt a kliens nem látja közvetlenül, ezért a hibaüzenet mindkét okot felsorolja.
+- A README hálózati része (M7) dokumentálja az egyszeri engedélyezést.
+- Hátra van: ugyanez macOS-en (Docker Desktop).
+
+**Kész, ha:** CI zöld, a próba eredménye dokumentálva mindkét platformon. Állapot: Linux ✓, macOS függőben, CI még nem futott (nincs távoli repó).
 
 ### M1 – Konfiguráció és szabálymotor
 
@@ -160,7 +176,7 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 
 | Kockázat | Kezelés |
 | --- | --- |
-| A sandbox nem éri el a hoston loopbackre kötött, véletlen portot | M0 próba elsőként; tartalék: rögzített/konfigurálható port, Linuxon bridge-címre kötés |
-| A gRPC forgalom a sandbox proxyján megy | `grpc.WithNoProxy()` a kliensben |
+| A sandbox nem éri el a hoston loopbackre kötött portot | Linuxon cáfolva (M0); macOS-en még ellenőrizni kell |
+| Portonkénti hálózati jóváhagyás a sandboxban | Rögzített alapport, egyszeri engedélyezés, a hibaüzenet és a README utal rá |
 | Projektfájlokból dolgozó parancsok megkerülik a listát | Dokumentálva README-ben és skillben; későbbi bővítés: megjelölt fájlok figyelése az M5 mechanizmusával |
 | Kilépési kód ütközés a saját kódokkal | Stderr-üzenet egyértelműsít; kódok dokumentálva |

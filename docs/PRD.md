@@ -47,7 +47,7 @@ Egyetlen bináris, amelynek a szerepét a `--mode` paraméter dönti el; a skill
 - A `--` utáni részt a sandbox oldal változtatás nélkül, argumentumlistaként továbbítja.
 - A parancs a hoston a projektkönyvtárban fut; mivel a Docker sandbox ugyanazon az útvonalon csatolja fel a projektet, az abszolút útvonalak is érvényesek.
 - A host termináljában minden futásnál látszik: időpont, a teljes parancs, a kimenet és a kilépési kód, illetve elutasításnál az ok.
-- Ha a host nem elérhető, a sandbox oldal egyértelmű hibaüzenettel és külön, dokumentált kilépési kóddal áll le.
+- Ha a host nem elérhető, a sandbox oldal egyértelmű hibaüzenettel és külön, dokumentált kilépési kóddal áll le. Az üzenet a lehetséges okokat is megnevezi: nem fut a host démon, vagy a port nincs engedélyezve a sandbox hálózati szabályzatában.
 
 **Naplózás.**
 
@@ -59,7 +59,9 @@ A két oldal gRPC-n kommunikál TCP felett; a host csak a helyi gépen figyel, a
 
 **Kapcsolódás és hitelesítés**
 
-- A host indításkor véletlen portot és véletlen tokent választ, és ezeket a projektkönyvtárba írja (`.hoex/connection`).
+- A host rögzített porton figyel (alapértelmezés: `47800`), amely a `--port` kapcsolóval vagy a konfiguráció `port` kulcsával felülírható, például ha több projekt hostja fut egyszerre. Ha a port foglalt, a host egyértelmű hibával nem indul el.
+- A host indításkor véletlen tokent generál, és a porttal együtt a projektkönyvtárba írja (`.hoex/connection`).
+- A port azért rögzített, mert a Docker sandbox hálózati szabályzata portonként kér jóváhagyást (`localhost:<port>`); véletlen port mellett ez minden indításkor új jóváhagyást igényelne. A jóváhagyás így portonként egyszeri (`sbx policy allow network localhost:47800`).
 - A sandbox oldal innen olvassa ki a portot és a tokent, külön beállítás nem kell.
 - Token nélküli vagy hibás tokennel érkező kérést a host elutasít.
 - A host leálláskor törli a kapcsolati fájlt; a `.hoex/` könyvtár nem kerül verziókezelésbe.
@@ -135,6 +137,7 @@ allow:
 - A `pattern` mindig a teljes parancsra illeszkedik, akkor is, ha a `^` és `$` hiányzik.
 - A `prefix` teljes szavakra illeszkedik: a `flutter` engedélyezi a `flutter test` parancsot, de a `flutterx` nevűt nem.
 - A `deny_chaining: true` elutasítja azokat a kéréseket, amelyek argumentumai parancsösszefűző jelet tartalmaznak (`;`, `&&`, `||`, `|`, sortörés, `$(`, backtick). Shell nélküli futtatásnál ezek amúgy sem hajtódnának végre, de így az agent egyértelmű hibát kap.
+- A `port` kulcs (opcionális, mindkét szinten) felülírja az alapértelmezett `47800`-as portot; a projektszint az erősebb, a `--port` kapcsoló mindkettőt felülírja.
 - Érvénytelen YAML vagy regex esetén a host nem indul el, és megnevezi a hibás sort.
 
 ## Parancsvégrehajtás
@@ -170,7 +173,7 @@ Az eszköz szándékosan rést nyit a sandboxon, ezért a védelem több rétegr
 
 1. Csak engedélyezési lista: ami nem illeszkedik egy szabályra, nem fut.
 2. Shell nélküli futtatás és `deny_chaining`: egy engedélyezett parancs nem indíthat másodikat.
-3. Csak helyi gépen figyelő port, futásonként generált tokennel.
+3. Csak helyi gépen figyelő port, futásonként generált tokennel; a sandbox hálózati szabályzatában a portot külön engedélyezni kell.
 4. A projektszintű konfiguráció olvasása és írása tiltott a Claude Code beállításaiban.
 5. A host indításkor rögzíti a projektszintű konfiguráció ellenőrző összegét. Ha a fájl futás közben megváltozik, nem veszi át automatikusan: a saját felületén megmutatja a változást, és jóváhagyást kér. Ez akkor is véd, ha az agent a Claude Code engedélyeit megkerülve, parancsból írja a fájlt.
 6. Minden futás látható a host termináljában.
@@ -206,7 +209,7 @@ Az eszköz Go nyelven készül, mert egyetlen statikus binárist ad macOS-re és
 
 **Kockázatok**
 
-- A Docker sandbox hálózati korlátozása megakadályozhatja a kapcsolódást a hosthoz; ezt a fejlesztés elején ki kell próbálni macOS-en és Linuxon is.
+- A Docker sandbox hálózati korlátozása megakadályozhatja a kapcsolódást a hosthoz. Linuxon ellenőrizve (2026-10-16): a csak helyi gépen figyelő port a `host.docker.internal` címen, a sandbox proxyján át elérhető, a gRPC stream és a megszakítás működik, a portot egyszer engedélyezni kell. macOS-en még ki kell próbálni.
 - A projektfájlokból dolgozó parancsok megkerülhetik az engedélyezési listát (lásd Biztonság).
 
 **Nyitott kérdések**
