@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -34,8 +33,8 @@ type Options struct {
 	Port int
 	// Listener, if set, is used instead of listening on the port (tests).
 	Listener net.Listener
-	// Out receives the plain-text log of runs.
-	Out io.Writer
+	// Display shows what happens: the line logger or the TUI.
+	Display events.Sink
 	// Ready, if set, is called with the listening address once serving.
 	Ready func(addr net.Addr)
 }
@@ -53,11 +52,9 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	for _, w := range cfg.Warnings {
-		_, _ = fmt.Fprintln(o.Out, "warning:", w)
-	}
+	warnings := cfg.Warnings
 	if len(cfg.Rules) == 0 {
-		_, _ = fmt.Fprintf(o.Out, "warning: no allow rules in %s or the user config; every command will be rejected\n", cfg.ProjectFile)
+		warnings = append(warnings, fmt.Sprintf("no allow rules in %s or the user config; every command will be rejected", cfg.ProjectFile))
 	}
 
 	port := cfg.Port
@@ -90,18 +87,20 @@ func Run(ctx context.Context, o Options) error {
 		_ = lis.Close()
 		return err
 	}
-	log.OnError = func(err error) { _, _ = fmt.Fprintln(o.Out, "warning: audit log:", err) }
-	log.Started(actual, len(cfg.Rules))
+	log.OnError = func(err error) {
+		o.Display.Send(events.Warning{Time: time.Now(), Text: "audit log: " + err.Error()})
+	}
 	defer func() { _ = log.Close() }()
+	sink := events.Multi{o.Display, log}
 
-	srv := server.New(root, token, policy.New(cfg.Rules), events.Multi{events.NewLogger(o.Out), log})
+	srv := server.New(root, token, policy.New(cfg.Rules), sink)
 	if err := connfile.Write(root, connfile.Info{Port: actual, Token: token, PID: os.Getpid()}); err != nil {
 		_ = lis.Close()
 		return err
 	}
 	defer func() { _ = connfile.Remove(root) }()
 
-	_, _ = fmt.Fprintf(o.Out, "hoex host: %s, port %d, %d rules\n", root, actual, len(cfg.Rules))
+	sink.Send(events.HostStarted{Time: time.Now(), Root: root, Port: actual, Rules: len(cfg.Rules), Warnings: warnings})
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(lis) }()
 	if o.Ready != nil {
@@ -112,7 +111,7 @@ func Run(ctx context.Context, o Options) error {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
-		_, _ = fmt.Fprintln(o.Out, "hoex host: shutting down")
+		sink.Send(events.Stopping{Time: time.Now()})
 		srv.Stop(5 * time.Second)
 		return nil
 	}

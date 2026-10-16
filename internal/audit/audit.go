@@ -53,11 +53,6 @@ func Open(dir string) (*Log, error) {
 	return &Log{f: f, enc: json.NewEncoder(f), running: make(map[int]events.Started)}, nil
 }
 
-// Started records that the host daemon started.
-func (l *Log) Started(port, rules int) {
-	l.write(Record{Time: time.Now(), Event: "start", Port: port, Rules: rules})
-}
-
 // Close records that the host daemon stopped and closes the file.
 func (l *Log) Close() error {
 	l.write(Record{Time: time.Now(), Event: "stop"})
@@ -69,6 +64,8 @@ func (l *Log) Close() error {
 // Send implements events.Sink.
 func (l *Log) Send(e events.Event) {
 	switch e := e.(type) {
+	case events.HostStarted:
+		l.write(Record{Time: e.Time, Event: "start", Port: e.Port, Rules: e.Rules})
 	case events.Started:
 		l.mu.Lock()
 		l.running[e.RunID] = e

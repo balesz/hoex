@@ -18,6 +18,7 @@ import (
 
 	"github.com/balesz/hoex/internal/client"
 	"github.com/balesz/hoex/internal/connfile"
+	"github.com/balesz/hoex/internal/events"
 	"github.com/balesz/hoex/internal/exitcode"
 	"github.com/balesz/hoex/internal/host"
 )
@@ -87,7 +88,7 @@ func start(t *testing.T) *fixture {
 		done <- host.Run(ctx, host.Options{
 			Root:     root,
 			Listener: lis,
-			Out:      f.log,
+			Display:  events.NewLogger(f.log),
 			Ready:    func(net.Addr) { close(ready) },
 		})
 	}()
@@ -252,7 +253,7 @@ func TestPortInUse(t *testing.T) {
 	}
 	defer func() { _ = lis.Close() }()
 	err = host.Run(context.Background(), host.Options{
-		Root: t.TempDir(), Port: lis.Addr().(*net.TCPAddr).Port, Out: &syncBuffer{},
+		Root: t.TempDir(), Port: lis.Addr().(*net.TCPAddr).Port, Display: events.NewLogger(&syncBuffer{}),
 	})
 	if err == nil || !strings.Contains(err.Error(), "already in use") {
 		t.Errorf("err = %v", err)
@@ -262,7 +263,7 @@ func TestPortInUse(t *testing.T) {
 func TestInvalidConfigStopsStartup(t *testing.T) {
 	root := t.TempDir()
 	write(t, filepath.Join(root, ".hoex.yaml"), "allow:\n  - prefix: echo\n", 0o644)
-	err := host.Run(context.Background(), host.Options{Root: root, Out: &syncBuffer{}})
+	err := host.Run(context.Background(), host.Options{Root: root, Display: events.NewLogger(&syncBuffer{})})
 	if err == nil || !strings.Contains(err.Error(), ".hoex.yaml:2: rule is missing description") {
 		t.Errorf("err = %v", err)
 	}

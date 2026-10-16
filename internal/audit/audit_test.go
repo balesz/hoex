@@ -40,7 +40,7 @@ func TestLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.Started(47800, 2)
+	l.Send(events.HostStarted{Time: t0, Port: 47800, Rules: 2})
 	l.Send(events.Started{RunID: 1, Time: t0, Argv: []string{"flutter", "test"}, Cwd: "/p"})
 	l.Send(events.Output{RunID: 1, Data: []byte("secret output")})
 	l.Send(events.Finished{RunID: 1, Time: t0.Add(1500 * time.Millisecond), ExitCode: 1})
@@ -56,7 +56,7 @@ func TestLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.Started(47800, 2)
+	l.Send(events.HostStarted{Time: t0, Port: 47800, Rules: 2})
 	_ = l.Close()
 
 	recs := readRecords(t, dir)
