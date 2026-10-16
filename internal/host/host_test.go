@@ -9,8 +9,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -276,4 +278,134 @@ func readConn(t *testing.T, root string) connfile.Info {
 		t.Fatal(err)
 	}
 	return info
+}
+
+func TestClientCancelStopsHostCommand(t *testing.T) {
+	f := start(t)
+	write(t, filepath.Join(f.root, "sleeper.sh"), "sleep 1000 & echo $! > pid; wait\n", 0o644)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() {
+		var out bytes.Buffer
+		done <- client.Run(ctx, client.Options{
+			Argv: []string{"sh", "sleeper.sh"}, Cwd: f.root, Host: "127.0.0.1", Stdout: &out, Stderr: &out,
+		})
+	}()
+	pid := waitPID(t, filepath.Join(f.root, "pid"))
+	cancel()
+	<-done
+
+	deadline := time.Now().Add(3 * time.Second)
+	for syscall.Kill(pid, 0) == nil && !zombie(pid) {
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			t.Fatal("host command still running after the sandbox side canceled")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	waitLog(t, f, "abort canceled by the sandbox")
+}
+
+func TestParallelRunsDoNotMix(t *testing.T) {
+	f := start(t)
+	write(t, filepath.Join(f.root, "lines.sh"), "i=0; while [ $i -lt 2000 ]; do echo \"$1$1$1\"; i=$((i+1)); done\n", 0o644)
+
+	var wg sync.WaitGroup
+	results := make([]result, 3)
+	for i, tag := range []string{"A", "B", "C"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = f.run(t, f.root, "sh", "lines.sh", tag)
+		}()
+	}
+	wg.Wait()
+	for i, tag := range []string{"A", "B", "C"} {
+		want := strings.Repeat(tag+tag+tag+"\n", 2000)
+		if results[i].code != 0 || results[i].stdout != want {
+			t.Errorf("run %s: code=%d, %d bytes of stdout, want %d", tag, results[i].code, len(results[i].stdout), len(want))
+		}
+	}
+	// In the host log every output line carries the ID of its own run.
+	runTag := map[string]string{}
+	for _, line := range strings.Split(f.log.String(), "\n") {
+		if fields := strings.Fields(line); len(fields) == 8 && fields[2] == "run" {
+			runTag[fields[1]] = fields[5]
+		}
+	}
+	if len(runTag) != 3 {
+		t.Fatalf("found %d runs in the host log, want 3", len(runTag))
+	}
+	for _, line := range strings.Split(f.log.String(), "\n") {
+		id, rest, ok := strings.Cut(line, " │ ")
+		if !ok {
+			continue
+		}
+		if tag := runTag[id]; rest != tag+tag+tag {
+			t.Fatalf("host log line %q does not belong to run %s (%s)", line, id, tag)
+		}
+	}
+}
+
+func TestAuditLog(t *testing.T) {
+	f := start(t)
+	f.run(t, f.root, "echo", "secret-output")
+	f.run(t, f.root, "touch", "x")
+	logFile := filepath.Join(f.root, connfile.Dir, "hoex.log")
+	waitFor(t, func() bool {
+		data, _ := os.ReadFile(logFile)
+		return bytes.Contains(data, []byte(`"event":"deny"`))
+	})
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"event":"start"`, `"event":"run"`, `"argv":["echo","secret-output"]`, `"exit_code":0`, `"argv":["touch","x"]`, `"reason":"command not allowed: touch x"`} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Errorf("audit log does not contain %s:\n%s", want, data)
+		}
+	}
+	if bytes.Contains(data, []byte("secret-output\\n")) {
+		t.Error("command output in the audit log")
+	}
+}
+
+func waitPID(t *testing.T, file string) int {
+	t.Helper()
+	var pid int
+	waitFor(t, func() bool {
+		data, err := os.ReadFile(file)
+		if err != nil || !bytes.HasSuffix(data, []byte("\n")) {
+			return false
+		}
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+		return pid > 0
+	})
+	return pid
+}
+
+func zombie(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(data))
+	return len(fields) > 2 && fields[2] == "Z"
+}
+
+func waitLog(t *testing.T, f *fixture, s string) {
+	t.Helper()
+	waitFor(t, func() bool { return strings.Contains(f.log.String(), s) })
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not met in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

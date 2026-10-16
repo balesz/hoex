@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -19,6 +18,11 @@ const (
 	ExitCannotExecute = 126
 	ExitNotFound      = 127
 )
+
+// KillDelay is how long a canceled command's process group gets between
+// SIGTERM and SIGKILL. It also bounds how long Run waits for output pipes
+// that a background child keeps open after the command exited.
+var KillDelay = 5 * time.Second
 
 // Chunk is a piece of command output.
 type Chunk struct {
@@ -35,21 +39,36 @@ type OutputFunc func(Chunk) error
 // returns 128+signal. A command that cannot be started returns 126 or 127 and
 // a message on stderr, like a shell. The error is non-nil only if out failed
 // or ctx was canceled.
+//
+// The command runs in its own process group. When ctx is canceled the whole
+// group gets SIGTERM, then SIGKILL after KillDelay.
 func Run(ctx context.Context, argv []string, dir string, out OutputFunc) (int, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	chunks := make(chan Chunk)
+	exited := make(chan struct{})
+
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
-	cmd.WaitDelay = 5 * time.Second
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return 0, err
+	cmd.Stdout = chunkWriter{stderr: false, ch: chunks}
+	cmd.Stderr = chunkWriter{stderr: true, ch: chunks}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		pgid := cmd.Process.Pid
+		err := syscall.Kill(-pgid, syscall.SIGTERM)
+		go func() {
+			select {
+			case <-exited:
+			case <-time.After(KillDelay):
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			}
+		}()
+		return err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return 0, err
-	}
+	// After cancel or exit, stop waiting for pipes held open by leftovers.
+	cmd.WaitDelay = KillDelay + time.Second
+
 	if err := cmd.Start(); err != nil {
 		code := ExitCannotExecute
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
@@ -59,25 +78,23 @@ func Run(ctx context.Context, argv []string, dir string, out OutputFunc) (int, e
 		return code, out(Chunk{Stderr: true, Data: []byte(msg)})
 	}
 
-	chunks := make(chan Chunk)
-	done := make(chan struct{}, 2)
-	go pump(stdout, false, chunks, done)
-	go pump(stderr, true, chunks, done)
+	// Wait returns only after the copying goroutines of exec stopped writing
+	// to chunks, so closing it afterwards is safe.
+	go func() {
+		_ = cmd.Wait() // the exit status is read from cmd.ProcessState
+		close(exited)
+		close(chunks)
+	}()
 
 	var outErr error
-	for open := 2; open > 0; {
-		select {
-		case c := <-chunks:
-			if outErr == nil {
-				if outErr = out(c); outErr != nil {
-					cancel()
-				}
-			}
-		case <-done:
-			open--
+	for c := range chunks {
+		if outErr != nil {
+			continue // keep draining so the command is not blocked
+		}
+		if outErr = out(c); outErr != nil {
+			cancel()
 		}
 	}
-	_ = cmd.Wait() // the exit status is read from cmd.ProcessState
 
 	if outErr != nil {
 		return 0, outErr
@@ -88,19 +105,15 @@ func Run(ctx context.Context, argv []string, dir string, out OutputFunc) (int, e
 	return exitCode(cmd.ProcessState), nil
 }
 
-// pump reads r until EOF and sends copies of what it read to chunks.
-func pump(r io.Reader, isStderr bool, chunks chan<- Chunk, done chan<- struct{}) {
-	defer func() { done <- struct{}{} }()
-	buf := make([]byte, 32<<10)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			chunks <- Chunk{Stderr: isStderr, Data: append([]byte(nil), buf[:n]...)}
-		}
-		if err != nil {
-			return
-		}
-	}
+// chunkWriter hands each write to the consumer goroutine.
+type chunkWriter struct {
+	stderr bool
+	ch     chan<- Chunk
+}
+
+func (w chunkWriter) Write(p []byte) (int, error) {
+	w.ch <- Chunk{Stderr: w.stderr, Data: append([]byte(nil), p...)}
+	return len(p), nil
 }
 
 func exitCode(ps *os.ProcessState) int {

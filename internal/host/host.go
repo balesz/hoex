@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/balesz/hoex/internal/audit"
 	"github.com/balesz/hoex/internal/config"
 	"github.com/balesz/hoex/internal/connfile"
 	"github.com/balesz/hoex/internal/events"
@@ -80,7 +81,20 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return err
 	}
-	srv := server.New(root, token, policy.New(cfg.Rules), events.NewLogger(o.Out))
+	if err := connfile.EnsureDir(root); err != nil {
+		_ = lis.Close()
+		return err
+	}
+	log, err := audit.Open(filepath.Join(root, connfile.Dir))
+	if err != nil {
+		_ = lis.Close()
+		return err
+	}
+	log.OnError = func(err error) { _, _ = fmt.Fprintln(o.Out, "warning: audit log:", err) }
+	log.Started(actual, len(cfg.Rules))
+	defer func() { _ = log.Close() }()
+
+	srv := server.New(root, token, policy.New(cfg.Rules), events.Multi{events.NewLogger(o.Out), log})
 	if err := connfile.Write(root, connfile.Info{Port: actual, Token: token, PID: os.Getpid()}); err != nil {
 		_ = lis.Close()
 		return err

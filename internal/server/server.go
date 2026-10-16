@@ -3,6 +3,7 @@ package server
 
 import (
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -19,6 +20,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+// errCanceled is reported when the sandbox side went away during a run.
+var errCanceled = errors.New("canceled by the sandbox")
 
 // Server runs allowed commands in the project root for the sandbox.
 type Server struct {
@@ -104,13 +108,18 @@ func (s *Server) Run(req *hoexv1.RunRequest, stream grpc.ServerStreamingServer[h
 		}
 		return stream.Send(ev)
 	})
-	s.sink.Send(events.Finished{RunID: id, Time: time.Now(), ExitCode: code, Err: err})
 	if err != nil {
-		if ctxErr := stream.Context().Err(); ctxErr != nil {
+		ctxErr := stream.Context().Err()
+		if ctxErr != nil {
+			err = errCanceled
+		}
+		s.sink.Send(events.Finished{RunID: id, Time: time.Now(), Err: err})
+		if ctxErr != nil {
 			return status.FromContextError(ctxErr).Err()
 		}
 		return err
 	}
+	s.sink.Send(events.Finished{RunID: id, Time: time.Now(), ExitCode: code})
 	return stream.Send(&hoexv1.RunEvent{Event: &hoexv1.RunEvent_ExitCode{ExitCode: int32(code)}})
 }
 

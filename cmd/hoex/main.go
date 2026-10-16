@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/balesz/hoex/internal/client"
@@ -69,12 +70,28 @@ func runSandbox(argv []string) int {
 	if err != nil {
 		fail(exitcode.Internal, err.Error())
 	}
-	return client.Run(context.Background(), client.Options{
+	// On a signal, cancel the call so the host stops the command, then exit
+	// like a shell does for a command killed by that signal.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	var got atomic.Value
+	go func() {
+		got.Store(<-sigc)
+		cancel()
+	}()
+
+	code := client.Run(ctx, client.Options{
 		Argv:   argv,
 		Cwd:    cwd,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	})
+	if sig, ok := got.Load().(syscall.Signal); ok {
+		return 128 + int(sig)
+	}
+	return code
 }
 
 func fail(code int, msg string) {

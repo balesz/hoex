@@ -149,6 +149,12 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - `internal/audit`: `.hoex/hoex.log` hozzáfűzéssel, soronként egy JSON rekord (időpont, futásazonosító, argv, cwd, kilépési kód vagy elutasítás oka), kimenet nélkül; leálláskor megmarad.
 - Tesztek: `sleep 100` megszakítása után a folyamat nem él; két párhuzamos futás kimenete nem keveredik; naplórekord minden futásra és elutasításra.
 
+**Állapot: kész (2026-10-16), a sandboxon belül binárissal is ellenőrizve.** Megvalósítás közben rögzített részletek:
+- Sandbox oldal: SIGINT/SIGTERM/SIGHUP → a hívás megszakítása, kilépés `128+jel` kóddal (Ctrl+C → 130), mint egy shellnél.
+- Runner: a parancs saját folyamatcsoportban fut; megszakításkor a csoport SIGTERM-et kap, 5 mp után SIGKILL-t. A kimenet `exec.Cmd` írókon át érkezik, és a `WaitDelay` miatt egy háttérben hagyott gyerekfolyamat legfeljebb 6 mp-ig tartja nyitva a futást (utána a kimenet lezárul, a kilépési kód megmarad). A parancs lefutása után megmaradt háttérfolyamatokat a host nem állítja le, ahogy egy shell sem.
+- Napló (`internal/audit`): JSON Lines a `.hoex/hoex.log`-ban, eseménytípusok: `start` (port, szabályok száma), `run` (argv, cwd, `exit_code` vagy `aborted`, `duration_ms`), `deny` (argv, cwd, `reason`), `stop`. A kimenet nem kerül bele.
+- Megszakított futás a host kimenetén: `#N abort canceled by the sandbox`.
+
 ### M4 – Host TUI
 
 - Bubble Tea modell az `events` buszra feliratkozva: bal oldalon a futások listája (állapot, időpont, parancs, kilépési kód / elutasítás), jobb oldalon a kiválasztott futás élő kimenete (viewport, stderr eltérő színnel).
