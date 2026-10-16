@@ -3,32 +3,81 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/balesz/hoex/internal/client"
+	"github.com/balesz/hoex/internal/config"
 	"github.com/balesz/hoex/internal/exitcode"
+	"github.com/balesz/hoex/internal/host"
 )
 
+const usage = `usage:
+  hoex --mode host [--port N]          run the host daemon in the project root
+  hoex --mode sandbox -- <command>...  run a command on the host from the sandbox
+  hoex --skill claude                  install the agent skill into the project
+
+exit codes in sandbox mode: the host command's own code, or
+  64 usage error, 69 host unreachable, 70 internal error, 77 command rejected
+`
+
 func main() {
+	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	mode := flag.String("mode", "", "host | sandbox")
 	skill := flag.String("skill", "", "install the agent skill (claude)")
+	port := flag.Int("port", 0, "host mode: port to listen on (default from config, else 47800)")
 	flag.Parse()
 
 	switch {
 	case *skill != "":
-		fail("--skill is not implemented yet")
+		fail(exitcode.Internal, "--skill is not implemented yet")
 	case *mode == "host":
-		fail("--mode host is not implemented yet")
+		os.Exit(runHost(*port))
 	case *mode == "sandbox":
-		fail("--mode sandbox is not implemented yet")
+		os.Exit(runSandbox(flag.Args()))
 	default:
-		fmt.Fprintln(os.Stderr, "usage: hoex --mode host | hoex --mode sandbox -- <command> | hoex --skill claude")
+		flag.Usage()
 		os.Exit(exitcode.Usage)
 	}
 }
 
-func fail(msg string) {
+func runHost(port int) int {
+	userFile, err := config.UserFilePath()
+	if err != nil {
+		fail(exitcode.Internal, err.Error())
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fail(exitcode.Internal, err.Error())
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err = host.Run(ctx, host.Options{Root: cwd, UserConfig: userFile, Port: port, Out: os.Stdout})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hoex:", err)
+		return 1
+	}
+	return 0
+}
+
+func runSandbox(argv []string) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fail(exitcode.Internal, err.Error())
+	}
+	return client.Run(context.Background(), client.Options{
+		Argv:   argv,
+		Cwd:    cwd,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
+}
+
+func fail(code int, msg string) {
 	fmt.Fprintln(os.Stderr, "hoex:", msg)
-	os.Exit(exitcode.Internal)
+	os.Exit(code)
 }

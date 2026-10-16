@@ -134,6 +134,14 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 
 **Kész, ha:** a sandboxban `hoex --mode sandbox -- flutter test | grep FAIL` működik, és a kilépési kód megegyezik a host oldalival (PRD sikerkritérium 1–2).
 
+**Állapot: kész (2026-10-16), Linux hoston Docker sandboxból ellenőrizve** (pipe + kilépési kód, alkönyvtár, elutasítás, láncolás, a 0600-as kapcsolati fájl olvasható a sandboxból, a sandbox oldal leállása a host folyamatot is leállítja). Megvalósítás közben rögzített részletek:
+- Új csomagok: `internal/connfile`, `internal/runner`, `internal/events` (soros naplózó: `#<futás> │` stdout, `#<futás> ┃` stderr), `internal/server`, `internal/client`, `internal/host`.
+- A `.hoex/` létrehozásakor egy `*` tartalmú `.hoex/.gitignore` kerül bele, így a könyvtár a projekt `.gitignore`-jának módosítása nélkül marad ki a verziókezelésből.
+- Nem indítható parancs: a host a shellekhez hasonlóan 127-tel (nem található) vagy 126-tal (nem futtatható) és stderr-üzenettel válaszol; ez nem `error` esemény, mert a kérést engedélyezte.
+- Hibás token (`Unauthenticated`) a sandboxban `69`, azzal az üzenettel, hogy valószínűleg egy másik projekt hostja fut ugyanazon a porton.
+- `HOEX_HOST` környezeti változó felülírja a `host.docker.internal`-t (tesztek, Dockeren kívüli futás).
+- Elutasított token is naplózódik a host kimenetén (`deny … (invalid token)`).
+
 ### M3 – Megszakítás, párhuzamosság, napló
 
 - Kliens: SIGINT/SIGTERM → a gRPC context megszakítása; szerver: context vége → folyamatcsoport leállítása.
