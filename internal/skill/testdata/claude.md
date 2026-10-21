@@ -80,6 +80,16 @@ by signal N). Its own errors start with `hoex:` on stderr and use these codes:
 | 64 | Wrong usage of hoex, e.g. no command after `--`. | Fix the call. |
 | 70 | Internal or protocol error. | Report it to the user. |
 
+## Files written on the host
+
+The project directory is shared between the host and the sandbox, and the
+sandbox may see changes made by host commands late: a directory listing can miss
+files a command just created, and a file can look older or shorter than it is.
+The output and exit code from hoex are always complete, so rely on them. If a
+file the command should have written seems missing or outdated, open it by its
+exact path, or check again a little later, before concluding that the command
+failed. Do not re-run a command only because of this.
+
 ## Rules
 
 - Never read or change `.hoex.yaml`. The allowed commands are the user's

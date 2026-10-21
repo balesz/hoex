@@ -280,6 +280,17 @@ the changed version. The allow list then only limits which entry point is used, 
 what runs. Allow such commands only if you are comfortable with that. The skill
 tells the agent not to do this, but that is not an enforcement.
 
+**Known limitation: the sandbox may see host changes late.** The project directory
+is shared between the host and the sandbox (in Docker Sandboxes on Linux, through
+virtiofs). Changes made by a command on the host can show up in the sandbox late or
+not at all for a while: a directory listing may miss files the command created, and
+a file the host keeps appending to (such as `.hoex/hoex.log`) may look older or
+shorter than it is. New directories and files opened by their exact path were
+usually up to date in our tests. This is how the sandbox file sharing behaves, not
+hoex; the output and exit code that hoex returns are always complete. The skill
+tells the agent to rely on them and to open files by path before concluding that a
+command did not write them. To see the audit log, read it on the host.
+
 ## Command line
 
 ```

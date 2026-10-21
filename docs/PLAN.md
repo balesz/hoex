@@ -239,4 +239,5 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 | A sandbox nem éri el a hoston loopbackre kötött portot | Linuxon cáfolva (M0); macOS-en még ellenőrizni kell |
 | Portonkénti hálózati jóváhagyás a sandboxban | Rögzített alapport, egyszeri engedélyezés, a hibaüzenet és a README utal rá |
 | Projektfájlokból dolgozó parancsok megkerülik a listát | Dokumentálva README-ben és skillben; későbbi bővítés: megjelölt fájlok figyelése az M5 mechanizmusával |
+| A sandbox késve látja a hoston írt változásokat (virtiofs: elavult könyvtárlista, a hozzáfűzött fájl régi mérete; a 2026-10-21-i Flutter-próbán észlelve) | A hoex kimenete és kilépési kódja mindig teljes; README és skill leírja, a skill szerint az agent ezekre támaszkodjon, és útvonallal nyissa meg a fájlt, mielőtt hibát feltételez |
 | Kilépési kód ütközés a saját kódokkal | Stderr-üzenet egyértelműsít; kódok dokumentálva |
