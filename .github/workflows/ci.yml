@@ -29,7 +29,8 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Pinned so that a new release does not fail the build unexpectedly.
+          version: v2.15.0
       - uses: bufbuild/buf-action@v1
         with:
           setup_only: true

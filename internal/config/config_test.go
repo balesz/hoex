@@ -94,7 +94,13 @@ func TestLoadPRDExamples(t *testing.T) {
 	if cfg.Port != DefaultPort {
 		t.Errorf("port = %d, want %d", cfg.Port, DefaultPort)
 	}
-	if cfg.ProjectFile != filepath.Join(root, ProjectFileName) {
+	// The root is resolved: on macOS the temp dir is under /var, a link
+	// to /private/var.
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProjectFile != filepath.Join(realRoot, ProjectFileName) {
 		t.Errorf("ProjectFile = %s", cfg.ProjectFile)
 	}
 }

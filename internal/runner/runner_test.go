@@ -128,7 +128,8 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	start := time.Now()
 	cancel()
 	select {
-	case <-result:
+	case err := <-result:
+		_ = err // only how long it took matters here
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after cancel")
 	}
