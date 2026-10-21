@@ -224,7 +224,6 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - `.goreleaser.yaml`: csak a `cmd/hoex` (a `hoex-probe` nem), `CGO_ENABLED=0`, `-trimpath`, a verzió `-X main.version`-nel (`hoex --version`). Az archívumok neve verzió nélküli (`hoex_linux_amd64.tar.gz`), így a `releases/latest/download/…` URL mindig a legutóbbi kiadásra mutat; a README telepítési parancsa erre épül.
 - `.github/workflows/release.yml`: `v*` tagre teszt, majd GoReleaser a beépített `GITHUB_TOKEN`-nel.
 - A sandboxba a bináris letöltéssel kerül (ugyanaz a parancs, mint a hoston); ehhez a sandboxnak el kell érnie a `github.com`-ot.
-- A CI a `master` ágra is fut, mert a helyi ág az.
 
 ## Tesztelési stratégia
 
