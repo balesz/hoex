@@ -86,9 +86,16 @@ The project directory is shared between the host and the sandbox, and the
 sandbox may see changes made by host commands late: a directory listing can miss
 files a command just created, and a file can look older or shorter than it is.
 The output and exit code from hoex are always complete, so rely on them. If a
-file the command should have written seems missing or outdated, open it by its
-exact path, or check again a little later, before concluding that the command
-failed. Do not re-run a command only because of this.
+file the command should have written seems missing or outdated, drop the
+sandbox's file caches, then look again:
+
+```bash
+sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
+```
+
+This only empties caches; no data is lost. If `sudo` is not available, open the
+file by its exact path or check again a little later. Do not re-run a command
+only because of this.
 
 ## Rules
 

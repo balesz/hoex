@@ -286,10 +286,20 @@ virtiofs). Changes made by a command on the host can show up in the sandbox late
 not at all for a while: a directory listing may miss files the command created, and
 a file the host keeps appending to (such as `.hoex/hoex.log`) may look older or
 shorter than it is. New directories and files opened by their exact path were
-usually up to date in our tests. This is how the sandbox file sharing behaves, not
-hoex; the output and exit code that hoex returns are always complete. The skill
-tells the agent to rely on them and to open files by path before concluding that a
-command did not write them. To see the audit log, read it on the host.
+usually up to date in our tests. This is the guest-side cache of the virtiofs share
+inside the sandbox VM, not hoex; the output and exit code that hoex returns are
+always complete.
+
+Dropping the sandbox VM's caches makes the current host state visible at once.
+In the default sandbox image the `agent` user has passwordless `sudo`:
+
+```bash
+sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
+```
+
+This only empties caches (the next file accesses are a little slower); no data is
+lost. The skill tells the agent to rely on the hoex output and exit code, and to
+drop the caches when a file a host command wrote looks missing or outdated.
 
 ## Command line
 
