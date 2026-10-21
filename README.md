@@ -304,3 +304,7 @@ make proto      # regenerate gen/ from proto/
 Releases are built by [GoReleaser](https://goreleaser.com) when a `v*` tag is
 pushed (`.github/workflows/release.yml`). To try the release build locally:
 `goreleaser release --snapshot --clean`.
+
+## License
+
+[MIT](LICENSE)
