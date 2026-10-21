@@ -23,10 +23,14 @@ import (
 	"github.com/balesz/hoex/internal/tui"
 )
 
+// version is set at release build time (see .goreleaser.yaml).
+var version = "dev"
+
 const usage = `usage:
   hoex --mode host [--port N] [--no-tui]  run the host daemon in the project root
   hoex --mode sandbox -- <command>...     run a command on the host from the sandbox
   hoex --skill claude                     install the agent skill into the project
+  hoex --version                          print the version
 
 exit codes in sandbox mode: the host command's own code, or
   64 usage error, 69 host unreachable, 70 internal error, 77 command rejected
@@ -38,9 +42,12 @@ func main() {
 	skill := flag.String("skill", "", "install the agent skill (claude)")
 	port := flag.Int("port", 0, "host mode: port to listen on (default from config, else 47800)")
 	noTUI := flag.Bool("no-tui", false, "host mode: plain log lines instead of the terminal UI")
+	showVersion := flag.Bool("version", false, "print the version")
 	flag.Parse()
 
 	switch {
+	case *showVersion:
+		fmt.Println("hoex", version)
 	case *skill != "":
 		os.Exit(installSkill(*skill))
 	case *mode == "host":

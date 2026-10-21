@@ -192,7 +192,8 @@ Az eszköz Go nyelven készül, mert egyetlen statikus binárist ad macOS-re és
 - A host mód terminálfelülete a Charm [Bubble Tea](https://github.com/charmbracelet/bubbletea) és [Lip Gloss](https://github.com/charmbracelet/lipgloss) csomagjaira épül (futások listája, élő kimenet, konfigurációváltozás jóváhagyása).
 - A sandbox mód nem használ TUI-t és stílusozást: a kimenetet változtatás nélkül írja a stdoutra és a stderrre, hogy a pipe-olás és az agent feldolgozása ne sérüljön.
 - Ugyanaz a bináris fut a hoston és a sandboxban; a sandboxba Linux build kerül.
-- Terjesztés Homebrew-n és a GitHubról letölthető binárisként (macOS: arm64, amd64; Linux: arm64, amd64).
+- Terjesztés kizárólag GitHub Release-ben letölthető binárisként (macOS: arm64, amd64; Linux: arm64, amd64), ellenőrző összegekkel. Csomagkezelős terjesztés (pl. Homebrew) nem része az első verziónak.
+- A dokumentáció (README) angol nyelvű.
 
 ## Hatókörön kívül (első verzió)
 

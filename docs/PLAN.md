@@ -15,7 +15,7 @@ A fejlesztés hét mérföldkőben halad. Az első egy kockázatcsökkentő pró
 | M4 | Host TUI | Bubble Tea felület: futások listája, élő kimenet |
 | M5 | Konfigurációváltozás jóváhagyása | Ellenőrző összeg, fájlfigyelés, jóváhagyó párbeszéd a TUI-ban |
 | M6 | Skillgenerálás | `hoex --skill claude`, Claude Code engedélyek, automatikus frissítés |
-| M7 | Terjesztés és dokumentáció | GoReleaser, Homebrew tap, GitHub Release binárisok, README |
+| M7 | Terjesztés és dokumentáció | GoReleaser, GitHub Release binárisok, angol nyelvű README |
 
 ## Architektúra
 
@@ -217,8 +217,14 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 ### M7 – Terjesztés és dokumentáció
 
 - GoReleaser: `CGO_ENABLED=0`, darwin/linux × arm64/amd64, checksumok, GitHub Release tagre.
-- Homebrew tap formula automatikus frissítése.
-- README: telepítés (host + a Linux bináris bejuttatása a sandboxba), gyors kezdés a Flutter példával, konfigurációs referencia, kilépési kódok, biztonsági modell és ismert korlátok, hálózati beállítás (az M0 eredménye alapján).
+- Homebrew nincs (a felhasználó döntése): a GitHub Release a terjesztés egyetlen módja.
+- README angolul: telepítés (host + a Linux bináris bejuttatása a sandboxba), gyors kezdés a Flutter példával, konfigurációs referencia, kilépési kódok, biztonsági modell és ismert korlátok, hálózati beállítás (az M0 eredménye alapján).
+
+**Állapot: a konfiguráció és a README kész (2026-10-21), helyi `goreleaser release --snapshot` lefutott; éles kiadás a GitHub repó után.** Megvalósítás közben rögzített részletek:
+- `.goreleaser.yaml`: csak a `cmd/hoex` (a `hoex-probe` nem), `CGO_ENABLED=0`, `-trimpath`, a verzió `-X main.version`-nel (`hoex --version`). Az archívumok neve verzió nélküli (`hoex_linux_amd64.tar.gz`), így a `releases/latest/download/…` URL mindig a legutóbbi kiadásra mutat; a README telepítési parancsa erre épül.
+- `.github/workflows/release.yml`: `v*` tagre teszt, majd GoReleaser a beépített `GITHUB_TOKEN`-nel.
+- A sandboxba a bináris letöltéssel kerül (ugyanaz a parancs, mint a hoston); ehhez a sandboxnak el kell érnie a `github.com`-ot.
+- A CI a `master` ágra is fut, mert a helyi ág az.
 
 ## Tesztelési stratégia
 

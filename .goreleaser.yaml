@@ -1,0 +1,44 @@
+# Release build: tag vX.Y.Z and push; .github/workflows/release.yml runs this.
+# Local check without publishing: goreleaser release --snapshot --clean
+version: 2
+
+project_name: hoex
+
+before:
+  hooks:
+    - go mod tidy -diff
+
+builds:
+  - id: hoex
+    main: ./cmd/hoex
+    binary: hoex
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [arm64, amd64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    # No version in the name, so that
+    # https://github.com/balesz/hoex/releases/latest/download/hoex_linux_amd64.tar.gz
+    # always points to the latest release (used by the README).
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: balesz
+    name: hoex
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
