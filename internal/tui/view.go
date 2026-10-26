@@ -117,9 +117,12 @@ func (m Model) render() string {
 		b.WriteString(l)
 		b.WriteByte('\n')
 	}
-	help := " ↑/↓ select · f follow latest · pgup/pgdn scroll output · q quit"
+	help := " j/k select · h/l scroll row · J output · f follow latest · q quit"
+	if m.focus == outputPane {
+		help = " j/k scroll · h/l scroll sideways · K run list · f follow latest · q quit"
+	}
 	if m.change != nil {
-		help = " a approve config change · r reject · ↑/↓ select · q quit"
+		help = " a approve config change · r reject · j/k select · q quit"
 	}
 	b.WriteString(fit(faintStyle.Render(help), m.width))
 	return b.String()
@@ -159,16 +162,29 @@ func (m Model) renderList() []string {
 			continue
 		}
 		r := m.runs[idx]
-		icon, style := status(r)
-		text := fmt.Sprintf("%s #%d %s %s", icon, r.id, r.start.Format("15:04:05"), r.command())
-		text = pad(ansi.Truncate(text, w, "…"), w)
-		if idx == m.sel {
-			lines[i] = selectedStyle.Render(text)
-		} else {
+		_, style := status(r)
+		text := listText(r)
+		if idx == m.sel && m.listX > 0 {
+			// The ellipsis takes the place of the last cell cut off.
+			text = ansi.TruncateLeft(text, m.listX+1, "…")
+		}
+		text = fit(text, w)
+		switch {
+		case idx != m.sel:
 			lines[i] = style.Render(text)
+		case m.focus == listPane:
+			lines[i] = selectedStyle.Render(text)
+		default:
+			lines[i] = style.Bold(true).Underline(true).Render(text)
 		}
 	}
 	return lines
+}
+
+// listText is the row of a run in the list.
+func listText(r *run) string {
+	icon, _ := status(r)
+	return fmt.Sprintf("%s #%d %s %s", icon, r.id, r.start.Format("15:04:05"), r.command())
 }
 
 // status returns the list icon and color of a run.
@@ -202,7 +218,11 @@ func (m Model) renderDetail() []string {
 		add("")
 		add(faintStyle.Render(" In the sandbox: hoex --mode sandbox -- <command>"))
 	} else {
-		add(boldStyle.Render(fmt.Sprintf(" #%d  %s", r.id, r.command())))
+		title := boldStyle
+		if m.focus == outputPane {
+			title = selectedStyle.Bold(true)
+		}
+		add(title.Render(pad(fmt.Sprintf(" #%d  %s", r.id, r.command()), w)))
 		add(" " + m.summary(r))
 		add(sepStyle.Render(strings.Repeat("─", w)))
 		if r.state == denied {

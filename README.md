@@ -198,7 +198,9 @@ below it, stderr in red.
 
 | Key | Action |
 | --- | --- |
-| ↑ / ↓ | Select a run (stops following new runs) |
+| `J` / `K` (Shift+J / Shift+K) | Focus the output / the run list |
+| `j` / `k`, ↓ / ↑ | Run list: select a run (stops following new runs); output: scroll by a line |
+| `h` / `l`, ← / → | Run list: scroll the selected row sideways; output: scroll sideways |
 | `f`, End | Follow the latest run |
 | PgUp / PgDn, Ctrl+U / Ctrl+D | Scroll the output |
 | `a` / `r` | Approve / reject a config change |

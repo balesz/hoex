@@ -6,9 +6,21 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/balesz/hoex/internal/events"
 )
+
+// pane is the panel that receives the h/j/k/l keys.
+type pane int
+
+const (
+	listPane pane = iota
+	outputPane
+)
+
+// hStep is how many cells h and l scroll sideways.
+const hStep = 8
 
 // Model is the Bubble Tea model of host mode.
 type Model struct {
@@ -36,6 +48,10 @@ type Model struct {
 	follow bool
 	// listTop is the first run shown in the list.
 	listTop int
+	// listX is how far the selected list row is scrolled sideways.
+	listX int
+	// focus is the panel that receives the h/j/k/l keys.
+	focus pane
 
 	vp        viewport.Model
 	vpRun     *run // run whose output is in the viewport
@@ -52,8 +68,14 @@ func New(feed *Feed) Model {
 		byID:    make(map[int]*run),
 		sel:     -1,
 		follow:  true,
-		vp:      viewport.New(),
+		vp:      newViewport(),
 	}
+}
+
+func newViewport() viewport.Model {
+	vp := viewport.New()
+	vp.SetHorizontalStep(hStep)
+	return vp
 }
 
 type tickMsg time.Time
@@ -151,7 +173,7 @@ func (m *Model) addRun(r *run) {
 	m.runs = append(m.runs, r)
 	m.byID[r.id] = r
 	if m.follow || m.sel < 0 {
-		m.sel = len(m.runs) - 1
+		m.choose(len(m.runs) - 1)
 	}
 	m.scrollList()
 }
@@ -168,19 +190,19 @@ func (m Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.change = nil
 			m.layout()
 		}
-	case "up", "k":
-		if m.sel > 0 {
-			m.sel--
-			m.follow = false
-		}
-	case "down", "j":
-		if m.sel < len(m.runs)-1 {
-			m.sel++
-			m.follow = m.sel == len(m.runs)-1
+	case "K", "shift+k":
+		m.focus = listPane
+	case "J", "shift+j":
+		m.focus = outputPane
+	case "up", "k", "down", "j", "left", "h", "right", "l":
+		if m.focus == listPane {
+			m.listKey(msg.String())
+		} else {
+			m.outputKey(msg.String())
 		}
 	case "f", "end":
 		m.follow = true
-		m.sel = len(m.runs) - 1
+		m.choose(len(m.runs) - 1)
 	case "pgup":
 		m.vp.PageUp()
 	case "pgdown":
@@ -193,6 +215,50 @@ func (m Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.scrollList()
 	m.refresh()
 	return m, nil
+}
+
+// listKey moves the selection with j/k and scrolls the selected row with h/l.
+func (m *Model) listKey(k string) {
+	switch k {
+	case "up", "k":
+		if m.sel > 0 {
+			m.choose(m.sel - 1)
+			m.follow = false
+		}
+	case "down", "j":
+		if m.sel < len(m.runs)-1 {
+			m.choose(m.sel + 1)
+			m.follow = m.sel == len(m.runs)-1
+		}
+	case "left", "h":
+		m.listX = max(0, m.listX-hStep)
+	case "right", "l":
+		if r := m.selected(); r != nil {
+			m.listX = max(0, min(m.listX+hStep, ansi.StringWidth(listText(r))-m.width))
+		}
+	}
+}
+
+// outputKey scrolls the output with j/k and sideways with h/l.
+func (m *Model) outputKey(k string) {
+	switch k {
+	case "up", "k":
+		m.vp.ScrollUp(1)
+	case "down", "j":
+		m.vp.ScrollDown(1)
+	case "left", "h":
+		m.vp.ScrollLeft(hStep)
+	case "right", "l":
+		m.vp.ScrollRight(hStep)
+	}
+}
+
+// choose selects the run at index i and scrolls its row back to the start.
+func (m *Model) choose(i int) {
+	if i != m.sel {
+		m.listX = 0
+	}
+	m.sel = i
 }
 
 func (m *Model) selected() *run {
@@ -216,6 +282,9 @@ func (m *Model) refresh() {
 	atBottom := m.vp.AtBottom()
 	m.vp.SetContentLines(renderLines(r))
 	m.vpRun, m.vpVersion = r, r.version
+	if switched {
+		m.vp.SetXOffset(0)
+	}
 	if switched || atBottom {
 		m.vp.GotoBottom()
 	}

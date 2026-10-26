@@ -337,3 +337,63 @@ func TestLatestWarningShown(t *testing.T) {
 		t.Error("older warning still shown")
 	}
 }
+
+func TestListRowScrollsSideways(t *testing.T) {
+	h := newHarness(t, 60, 20)
+	long := "echo " + strings.Repeat("a", 80) + "END"
+	h.send(events.Started{RunID: 1, Time: t0, Argv: []string{long}}, events.Started{RunID: 2, Time: t0, Argv: []string{long}})
+	if strings.Contains(h.screen(), "END") {
+		t.Fatal("long command not truncated")
+	}
+	for range 10 {
+		h.key("l")
+	}
+	if n := strings.Count(h.screen(), "END"); n != 1 {
+		t.Errorf("after l: END shown %d times, want once on the selected row", n)
+	}
+	h.key("k")
+	if h.m.listX != 0 {
+		t.Errorf("new selection kept the scroll offset %d", h.m.listX)
+	}
+	h.key("l")
+	h.key("h")
+	if h.m.listX != 0 {
+		t.Errorf("after l and h: offset %d", h.m.listX)
+	}
+}
+
+func TestOutputPaneKeys(t *testing.T) {
+	h := newHarness(t, 60, 20)
+	h.send(events.Started{RunID: 1, Time: t0, Argv: []string{"seq"}}, events.Started{RunID: 2, Time: t0, Argv: []string{"seq"}})
+	var b strings.Builder
+	for i := 1; i <= 50; i++ {
+		b.WriteString("line-" + strconv.Itoa(i) + " " + strings.Repeat("x", 80) + "END" + strconv.Itoa(i) + "\n")
+	}
+	h.send(events.Output{RunID: 2, Data: []byte(b.String())})
+	h.contains("line-50")
+
+	h.key("J")
+	if h.m.focus != outputPane {
+		t.Fatal("J did not focus the output")
+	}
+	h.contains("K run list")
+	h.key("k")
+	if id := h.selectedID(); id != 2 {
+		t.Errorf("k in the output changed the selection to #%d", id)
+	}
+	if strings.Contains(h.screen(), "line-50 ") {
+		t.Error("k did not scroll the output up")
+	}
+	for range 10 {
+		h.key("l")
+	}
+	h.contains("END49")
+	h.key("j")
+	h.contains("END50")
+
+	h.key("K")
+	h.key("k")
+	if id := h.selectedID(); id != 1 {
+		t.Errorf("k in the list after K: selected #%d, want #1", id)
+	}
+}
