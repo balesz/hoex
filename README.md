@@ -192,9 +192,9 @@ together with the next project file change.
 directory if that is inside the project, with the environment of the host daemon.
 The sandbox cannot set environment variables.
 
-The terminal UI lists the runs on the left (● running, ✓ exit 0, ✗ failed,
-⊘ rejected, ■ aborted) and the output of the selected run on the right, stderr in
-red.
+The terminal UI lists the last runs in a 10-line panel at the top (● running,
+✓ exit 0, ✗ failed, ⊘ rejected, ■ aborted) and the output of the selected run
+below it, stderr in red.
 
 | Key | Action |
 | --- | --- |

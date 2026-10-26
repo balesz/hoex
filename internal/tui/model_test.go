@@ -169,11 +169,14 @@ func TestSelectionAndFollow(t *testing.T) {
 }
 
 func TestListScrollsToSelection(t *testing.T) {
-	h := newHarness(t, 80, 10) // body: 10 - header 1 - footer 1 = 8 rows
+	h := newHarness(t, 80, 30)
 	for i := 1; i <= 30; i++ {
 		h.send(events.Started{RunID: i, Time: t0, Argv: []string{"cmd" + string(rune('A'+i%26))}})
 	}
-	h.contains("#30")
+	h.contains("#21 ", "#30")
+	if strings.Contains(h.screen(), "#20 ") {
+		t.Errorf("list shows more than %d runs", listRows)
+	}
 	for range 25 {
 		h.key("up")
 	}

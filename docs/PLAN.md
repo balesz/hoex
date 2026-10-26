@@ -157,7 +157,7 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 
 ### M4 – Host TUI
 
-- Bubble Tea modell az `events` buszra feliratkozva: bal oldalon a futások listája (állapot, időpont, parancs, kilépési kód / elutasítás), jobb oldalon a kiválasztott futás élő kimenete (viewport, stderr eltérő színnel).
+- Bubble Tea modell az `events` buszra feliratkozva: felül a futások listája (állapot, időpont, parancs, kilépési kód / elutasítás), alatta a kiválasztott futás élő kimenete (viewport, stderr eltérő színnel).
 - Fejléc: projektgyökér, port, betöltött szabályok száma, figyelmeztetések.
 - Nem TTY környezetben (vagy `--no-tui` jelzővel) az M2-es soros kimenet marad.
 - Teszt: `teatest`-tel a modell állapotátmenetei.
@@ -166,7 +166,7 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - Charm v2 csomagok: `charm.land/bubbletea/v2`, `charm.land/lipgloss/v2`, `charm.land/bubbles/v2` (viewport).
 - A host a saját üzeneteit is eseményként küldi (`HostStarted`, `Warning`, `Stopping`, `HostStopped`), így ugyanaz a kód hajtja a soros naplózót (`--no-tui`, vagy ha a stdout nem terminál) és a TUI-t.
 - `tui.Feed`: az események pufferbe kerülnek, a TUI kötegekben veszi ki őket, így a lassú terminál nem lassítja a parancsokat.
-- Felület: fejléc (projekt `~`-vel rövidítve, port, szabályok, futások), legfeljebb 3 figyelmeztetés, bal oldalt a futások (● fut, ✓ 0, ✗ hibakód, ⊘ elutasítva, ■ megszakítva), jobb oldalt a kiválasztott futás (könyvtár a projekthez képest, idő, időtartam, eredmény) és a kimenet (stderr pirossal).
+- Felület: fejléc (projekt `~`-vel rövidítve, port, szabályok, futások), legfeljebb 3 figyelmeztetés, felül egy 10 soros panelen a futások (● fut, ✓ 0, ✗ hibakód, ⊘ elutasítva, ■ megszakítva), alatta a kiválasztott futás (könyvtár a projekthez képest, idő, időtartam, eredmény) és a kimenet (stderr pirossal).
 - Billentyűk: ↑/↓ kiválasztás (követés ki), `f`/End a legutóbbi követése, PgUp/PgDn és Ctrl+U/D görgetés, `q`/Ctrl+C kilépés (leállítja a hostot).
 - A kimenet követi a végét, hacsak a felhasználó nem görgetett feljebb. Futásonként legfeljebb 10 000 sor marad meg; az ANSI-szekvenciák és vezérlőkarakterek kiszűrve, `\r` után csak a sor utolsó állapota (folyamatjelzők).
 - Teszt: `teatest` helyett a modell közvetlen meghajtása üzenetekkel és a kirajzolt képernyő ellenőrzése (sorok száma, szélessége, tartalma).
@@ -188,7 +188,7 @@ Az `events` busz választja le a végrehajtást a megjelenítéstől: M2-ben egy
 - Érvénytelen új fájl: időbélyeges figyelmeztetés a fejlécben (csak a legutóbbi futás közbeni figyelmeztetés látszik), a régi szabályok maradnak.
 - A felhasználói szintű fájlt a host nem figyeli, mert a sandbox nem látja. Egy projektfájl-változáskor viszont újraolvassa, így az eltérésben az ottani változások is megjelennek.
 - A szerver szabályai atomikusan cserélődnek (`Server.SetPolicy`); a már futó parancsokat a csere nem érinti.
-- TUI: a függő változás a jobb oldali panelen jelenik meg, `a` jóváhagy, `r` elutasít; az ablak címe is jelzi. Jóváhagyás után a fejléc szabályszáma és a konfigurációs figyelmeztetései frissülnek.
+- TUI: a függő változás az alsó panelen jelenik meg, `a` jóváhagy, `r` elutasít; az ablak címe is jelzi. Jóváhagyás után a fejléc szabályszáma és a konfigurációs figyelmeztetései frissülnek.
 - Napló: `config_change` (sorszám, ellenőrző összeg, eltérés), illetve `config_approved` / `config_rejected` / `config_withdrawn`.
 - Induláskori ellenőrzés (`internal/approval`): a jóváhagyott tartalom projektenként a `$XDG_STATE_HOME/hoex/approved/` (alapból `~/.local/state/hoex/approved/`) alatt, a projektgyökér hash-ével elnevezett fájlban. Induláskor ez az érvényes konfiguráció; ha a projektfájl eltér tőle, a host azonnal jóváhagyásra kínálja a változást. Az első indítás egy projektben jóváhagyásnak számít. Ha a tárolt tartalom már nem tölthető be, a host csak a felhasználói szintű szabályokkal indul, és a teljes projektfájlt kínálja jóváhagyásra.
 - `--no-tui` módban nincs jóváhagyás: a host jelzi, hogy a változáshoz TUI-val kell indítani, addig a jóváhagyott szabályok érvényesek.

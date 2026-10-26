@@ -111,6 +111,7 @@ func (m *Model) apply(e events.Event) bool {
 		m.layout()
 	case events.ConfigChanged:
 		m.change = &e
+		m.layout()
 	case events.ConfigResolved:
 		if m.change != nil && m.change.ID == e.ID {
 			m.change = nil
@@ -165,6 +166,7 @@ func (m Model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// that a second key press does nothing.
 			m.change.Decide(msg.String() == "a")
 			m.change = nil
+			m.layout()
 		}
 	case "up", "k":
 		if m.sel > 0 {
@@ -221,7 +223,7 @@ func (m *Model) refresh() {
 
 // scrollList keeps the selected run visible in the list.
 func (m *Model) scrollList() {
-	h := m.bodyHeight()
+	h := m.listHeight()
 	if h <= 0 {
 		return
 	}

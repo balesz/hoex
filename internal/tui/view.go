@@ -44,20 +44,31 @@ func (m *Model) headerHeight() int {
 
 func (m *Model) bodyHeight() int { return m.height - m.headerHeight() - 1 }
 
-func (m *Model) listWidth() int {
-	w := m.width / 3
-	return max(24, min(w, 50))
-}
-
-func (m *Model) detailWidth() int { return m.width - m.listWidth() - 1 }
+// listRows is the height of the run list above the detail pane.
+const listRows = 10
 
 // detailHeader is the number of lines above the output in the detail pane.
 const detailHeader = 3
 
+// minDetail is the detail height the list gives way to in short windows.
+const minDetail = detailHeader + 3
+
+// listHeight is the height of the run list; the separator line follows it.
+// The list shrinks in short windows and to make room for a pending config change.
+func (m *Model) listHeight() int {
+	detail := minDetail
+	if m.change != nil {
+		detail = max(detail, detailHeader+len(m.change.Diff)+2)
+	}
+	return max(1, min(listRows, m.bodyHeight()-1-detail))
+}
+
+func (m *Model) detailHeight() int { return max(0, m.bodyHeight()-m.listHeight()-1) }
+
 // layout sizes the viewport after the window or the header changed.
 func (m *Model) layout() {
-	m.vp.SetWidth(max(0, m.detailWidth()))
-	m.vp.SetHeight(max(0, m.bodyHeight()-detailHeader))
+	m.vp.SetWidth(m.width)
+	m.vp.SetHeight(max(0, m.detailHeight()-detailHeader))
 	m.scrollList()
 	if m.vpRun != nil {
 		m.vp.SetContentLines(renderLines(m.vpRun))
@@ -96,13 +107,14 @@ func (m Model) render() string {
 		b.WriteByte('\n')
 	}
 
-	list := m.renderList()
-	detail := m.renderDetail()
-	sep := sepStyle.Render("│")
-	for i := range m.bodyHeight() {
-		b.WriteString(list[i])
-		b.WriteString(sep)
-		b.WriteString(detail[i])
+	for _, l := range m.renderList() {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	b.WriteString(sepStyle.Render(strings.Repeat("─", m.width)))
+	b.WriteByte('\n')
+	for _, l := range m.renderDetail() {
+		b.WriteString(l)
 		b.WriteByte('\n')
 	}
 	help := " ↑/↓ select · f follow latest · pgup/pgdn scroll output · q quit"
@@ -136,9 +148,9 @@ func (m Model) title() string {
 	return t
 }
 
-// renderList returns exactly bodyHeight lines of listWidth cells.
+// renderList returns exactly listHeight full-width lines.
 func (m Model) renderList() []string {
-	w, h := m.listWidth(), m.bodyHeight()
+	w, h := m.width, m.listHeight()
 	lines := make([]string, h)
 	for i := range h {
 		idx := m.listTop + i
@@ -175,9 +187,9 @@ func status(r *run) (string, lipgloss.Style) {
 	return "✗", lipgloss.NewStyle().Foreground(red)
 }
 
-// renderDetail returns exactly bodyHeight lines of detailWidth cells.
+// renderDetail returns exactly detailHeight full-width lines.
 func (m Model) renderDetail() []string {
-	w, h := m.detailWidth(), m.bodyHeight()
+	w, h := m.width, m.detailHeight()
 	lines := make([]string, 0, h)
 	add := func(s string) { lines = append(lines, fit(s, w)) }
 
@@ -215,7 +227,7 @@ func (m Model) changeLines(w int) []string {
 		fit(" The new rules are not active until you approve them.", w),
 		sepStyle.Render(strings.Repeat("─", w)),
 	}
-	room := m.bodyHeight() - len(lines) - 2
+	room := m.detailHeight() - len(lines) - 2
 	for i, d := range c.Diff {
 		if i == room-1 && len(c.Diff) > room {
 			lines = append(lines, fit(faintStyle.Render(fmt.Sprintf(" … %d more", len(c.Diff)-i)), w))
